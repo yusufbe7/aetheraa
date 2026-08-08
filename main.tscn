@@ -1,0 +1,15 @@
+[gd_scene format=3 uid="uid://dwdoq8vuswc3f"]
+
+[ext_resource type="Script" uid="uid://blkixuq1w30pc" path="res://main.gd" id="1_ig7tw"]
+[ext_resource type="PackedScene" uid="uid://pdwbkuxmyywg" path="res://stag.tscn" id="2_0xm2m"]
+[ext_resource type="PackedScene" uid="uid://brve1lb6pu8u" path="res://boar.tscn" id="3_h2yge"]
+[ext_resource type="PackedScene" uid="uid://ilxkgdbjjlso" path="res://player.tscn" id="4_1bvp3"]
+
+[node name="Node2D" type="Node2D" unique_id=1244161199]
+script = ExtResource("1_ig7tw")
+
+[node name="stag" parent="." unique_id=1970225931 instance=ExtResource("2_0xm2m")]
+
+[node name="boar" parent="." unique_id=2045884321 instance=ExtResource("3_h2yge")]
+
+[node name="Player" parent="." unique_id=392572143 instance=ExtResource("4_1bvp3")]

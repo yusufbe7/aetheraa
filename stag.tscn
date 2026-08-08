@@ -1,0 +1,6 @@
+[gd_scene format=3 uid="uid://pdwbkuxmyywg"]
+
+[ext_resource type="Script" uid="uid://qb2n810pcvo1" path="res://stag.gd" id="1_jsmti"]
+
+[node name="stag" type="AnimatedSprite2D" unique_id=1970225931]
+script = ExtResource("1_jsmti")

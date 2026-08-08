@@ -1,0 +1,6 @@
+[gd_scene format=3 uid="uid://brve1lb6pu8u"]
+
+[ext_resource type="Script" uid="uid://bmbsmgv02w1sj" path="res://boar.gd" id="1_4ov56"]
+
+[node name="boar" type="AnimatedSprite2D" unique_id=2045884321]
+script = ExtResource("1_4ov56")
