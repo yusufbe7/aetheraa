@@ -184,11 +184,14 @@ const WORLD_SEED := 1337
 #  ELEVATION_ENABLED = false qilsangiz hamma narsa AVVALGIDEK tekis bo'ladi
 #  (ya'ni bu tizim biror joyni buzsa, darhol o'chirib qo'yish mumkin).
 # =========================================================================
-# HOZIRCHA O'CHIQ (terrasa "yoriqlari" g'alati edi). Yangi bloklar
-# tayyor bo'lgach qayta TRUE qilamiz.
-const ELEVATION_ENABLED := false
+# v2: KATTA plato zonalari + toza cliff poligonlari (tile_040 tekis usti saqlanadi).
+# Buzilsa -> ELEVATION_ENABLED = false qiling, darhol tekis holatga qaytadi.
+const ELEVATION_ENABLED := true
 const ELEV_LEVELS := 3           # eng baland daraja (0..3)
-const LEVEL_LIFT := 11.0         # har daraja necha px yuqoriga ko'tariladi (ekranda)
+const LEVEL_LIFT := 14.0         # har daraja necha px yuqoriga ko'tariladi (ekranda)
+# Cliff yuzasi ranglari (SE = o'ng yuza yorug'roq, SW = chap yuza to'qroq)
+const CLIFF_COL_SE := Color(0.50, 0.37, 0.24)
+const CLIFF_COL_SW := Color(0.38, 0.28, 0.17)
 var _elev_cache := {}
 
 var cam_offset := Vector2.ZERO
@@ -955,10 +958,10 @@ func _ready() -> void:
 	humid_noise.fractal_octaves = 2
 
 	# ---- YER BALANDLIGI (terrasa darajalari) ----
-	# Past frequency = kengroq, silliq balandlik zonalari (keskin sakramaydi).
+	# JUDA past frequency = KATTA, keng plato zonalari (mayda "yoriq" cliff'lar emas).
 	elev_noise.seed = WORLD_SEED + 555
 	elev_noise.noise_type = FastNoiseLite.TYPE_SIMPLEX_SMOOTH
-	elev_noise.frequency = 0.009
+	elev_noise.frequency = 0.0042
 	elev_noise.fractal_octaves = 2
 
 	decor_noise.seed = WORLD_SEED + 999
@@ -1809,12 +1812,12 @@ func _elevation(col: int, row: int) -> int:
 	var lvl := 0
 	if _ground_type(col, row) != "water":
 		var n := elev_noise.get_noise_2d(col, row)   # ~[-1, 1]
-		# Ko'p yer past (0-1), balandliklar kamroq — tabiiy terrasa
-		if n > 0.10:
+		# Ko'p yer past, tepaliklar KAMROQ va KENGROQ (mayda flek emas)
+		if n > 0.18:
 			lvl = 1
-		if n > 0.34:
+		if n > 0.46:
 			lvl = 2
-		if n > 0.58:
+		if n > 0.70:
 			lvl = 3
 	if _elev_cache.size() > 60000:
 		_elev_cache.clear()
@@ -2063,6 +2066,35 @@ func _draw_cliff(col: int, row: int) -> void:
 		for k in range(1, 3):
 			var t := float(k) / 3.0
 			draw_line(ll + down * t, b + down * t, line, 1.0)
+
+
+# TERRASA cliff yuzasi: shu (ko'tarilgan) katakdan PASTROQ old qo'shniga tushadi.
+# Old qo'shnilar: SE=(col+1,row), SW=(col,row+1). Poligon = ko'tarilgan chetdan
+# qo'shni sathigacha. block teksturasi emas, bo'yalgan dirt yuza (yoriqsiz).
+func _draw_elev_cliff(col: int, row: int) -> void:
+	var lift := _lift_px(col, row)
+	if lift <= 0.0:
+		return
+	var c := grid_to_local(col, row)
+	var b := c + Vector2(0.0, TILE_H / 2.0)          # pastki uch
+	var rr := c + Vector2(TILE_W / 2.0, 0.0)          # o'ng uch
+	var ll := c + Vector2(-TILE_W / 2.0, 0.0)         # chap uch
+	var up := Vector2(0.0, -lift)                     # ko'tarilgan chet
+	var line := Color(0.26, 0.18, 0.11, 0.45)
+	# SE yuza (o'ng) — qo'shni pastroq bo'lsagina
+	var nb_se := _lift_px(col + 1, row)
+	if nb_se < lift:
+		var d := Vector2(0.0, -nb_se)
+		draw_colored_polygon(PackedVector2Array([b + up, rr + up, rr + d, b + d]),
+			CLIFF_COL_SE)
+		draw_line((b + up + b + d) * 0.5, (rr + up + rr + d) * 0.5, line, 1.0)
+	# SW yuza (chap)
+	var nb_sw := _lift_px(col, row + 1)
+	if nb_sw < lift:
+		var d2 := Vector2(0.0, -nb_sw)
+		draw_colored_polygon(PackedVector2Array([ll + up, b + up, b + d2, ll + d2]),
+			CLIFF_COL_SW)
+		draw_line((ll + up + ll + d2) * 0.5, (b + up + b + d2) * 0.5, line, 1.0)
 
 
 func _draw_rock(col: int, row: int) -> void:
@@ -4148,9 +4180,13 @@ func _draw() -> void:
 						wcol.a = lerpf(SHALLOW_WATER_ALPHA, DEEP_WATER_ALPHA, depth01)
 						draw_texture(gtex, gc - half, wcol)
 					else:
-						draw_texture(gtex, gc - half)
-				if not use_blocks:
-					_draw_cliff_cached(col, row)
+						# Yer tayli — terrasa balandligiga KO'TARIB chiziladi
+						var llift := _lift_px(col, row)
+						draw_texture(gtex, gc - half - Vector2(0.0, llift))
+						if llift > 0.0:
+							_draw_elev_cliff(col, row)     # cliff yuzasi (pastroq qo'shniga)
+						elif not use_blocks:
+							_draw_cliff_cached(col, row)    # tekis qirg'oq (level 0)
 			if paths.has(gcell):
 				_draw_path(gcell)
 			if plazas.has(gcell):
