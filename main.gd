@@ -1109,7 +1109,8 @@ func _ready() -> void:
 			"log", "silver_ore", "copper_ore", "gold_ore", "apple", "coin",
 			"arrow", "bomb", "ruby", "emerald", "sapphire", "cactus",
 			"workbench", "anvil", "furnace", "windmill",
-			"leather", "mushroom", "egg", "cloth", "thread", "meat", "jelly"]:
+			"leather", "mushroom", "egg", "cloth", "thread", "meat", "jelly",
+			"meat_boar", "meat_deer"]:
 		var ic = load(ICON_DIR + n + ".png")
 		if ic != null:
 			_icons[n] = ic

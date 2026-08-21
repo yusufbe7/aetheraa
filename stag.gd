@@ -72,10 +72,10 @@ func hit(damage: int = 1) -> void:
 func _die() -> void:
 	dying = true
 	if world != null and world.has_method("add_item"):
-		world.add_item("Go'sht", "meat", 2)
+		world.add_item("Bug'u go'shti", "meat_deer", 2)
 		world.add_item("Leather", "leather", 1)
 		if world.has_method("_toast"):
-			world._toast("Go'sht", "meat", 2)
+			world._toast("Bug'u go'shti", "meat_deer", 2)
 			world._toast("Leather", "leather", 1)
 	if world != null and world.has_method("play_sfx"):
 		world.play_sfx("collect", -8.0, 0.1)
