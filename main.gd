@@ -6277,8 +6277,8 @@ class HudDraw extends Control:
 
 		# ---- ALOHIDA TOOL KATAGI (chapda) — Yasash stoli ----
 		if world.tool_slot != null:
-			var trect := world.tool_slot_rect(vp)
-			var thover := trect.has_point(mp)
+			var trect: Rect2 = world.tool_slot_rect(vp)
+			var thover: bool = trect.has_point(mp)
 			var tfill := Color(0.05, 0.06, 0.05, 0.80)
 			var tborder := Color(0.42, 0.52, 0.40, 0.80)
 			if thover:
