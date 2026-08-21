@@ -181,9 +181,9 @@ func _die() -> void:
 	await _wait_anim("death")
 	# Jelatin beradi
 	if world != null and world.has_method("add_item"):
-		world.add_item("Jelatin", "sapphire", 1)
+		world.add_item("Jelatin", "jelly", 1)
 		if world.has_method("_toast"):
-			world._toast("Jelatin", "sapphire", 1)
+			world._toast("Jelatin", "jelly", 1)
 	if world != null and world.has_method("play_sfx"):
 		world.play_sfx("collect", -10.0, 0.1)
 	queue_free()

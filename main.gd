@@ -232,6 +232,7 @@ const GRAVITY := 260.0     # tortishish
 const STAG_SCENE := "res://stag.tscn"
 const BOAR_SCENE := "res://boar.tscn"
 const SLIME_SCENE := "res://slime.tscn"
+const FROG_SCENE := "res://frog.tscn"
 var _animal_scenes := []
 var animals := []                  # hozir dunyoda yurgan hayvonlar
 const MAX_ANIMALS := 12            # bir vaqtda nechta hayvon bo'lsin
@@ -1061,7 +1062,7 @@ func _ready() -> void:
 		player.visible = false
 
 	# Hayvon sahnalarini yuklaymiz
-	for path in [STAG_SCENE, BOAR_SCENE, SLIME_SCENE]:
+	for path in [STAG_SCENE, BOAR_SCENE, SLIME_SCENE, FROG_SCENE]:
 		var sc = load(path)
 		if sc != null:
 			_animal_scenes.append(sc)
@@ -1094,11 +1095,15 @@ func _ready() -> void:
 	# Boshlang'ich urug' (ekin ekish uchun)
 	inv[HOTBAR_SLOTS + 1] = {"name": "Urug'", "icon": "item_seed", "count": 12}
 
-	# Narsa ikonkalarini yuklaymiz
+	# Narsa ikonkalarini yuklaymiz.
+	# YANGI itemlar (leather/mushroom/egg/cloth/thread/meat/jelly) — ikonka
+	# fayli hali yo'q bo'lsa jimgina o'tkazib yuboriladi (null). assets/icons/
+	# ichiga <nom>.png tashlaganingizda avtomatik ko'rinadi.
 	for n in ["axe", "pickaxe", "sword", "torch", "shovel", "bow", "fishing_rod",
 			"log", "silver_ore", "copper_ore", "gold_ore", "apple", "coin",
 			"arrow", "bomb", "ruby", "emerald", "sapphire", "cactus",
-			"workbench", "anvil", "furnace", "windmill"]:
+			"workbench", "anvil", "furnace", "windmill",
+			"leather", "mushroom", "egg", "cloth", "thread", "meat", "jelly"]:
 		var ic = load(ICON_DIR + n + ".png")
 		if ic != null:
 			_icons[n] = ic

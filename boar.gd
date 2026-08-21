@@ -54,9 +54,11 @@ func hit(damage: int = 1) -> void:
 func _die() -> void:
 	dying = true
 	if world != null and world.has_method("add_item"):
-		world.add_item("Go'sht", "apple", 3)
+		world.add_item("Go'sht", "meat", 3)
+		world.add_item("Leather", "leather", 2)
 		if world.has_method("_toast"):
-			world._toast("Go'sht", "apple", 3)
+			world._toast("Go'sht", "meat", 3)
+			world._toast("Leather", "leather", 2)
 	if world != null and world.has_method("play_sfx"):
 		world.play_sfx("collect", -8.0, 0.1)
 	queue_free()
