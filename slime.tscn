@@ -1,6 +1,0 @@
-[gd_scene format=3 uid="uid://dslimescene8mob"]
-
-[ext_resource type="Script" uid="uid://cslime7hop4mob" path="res://slime.gd" id="1_slime"]
-
-[node name="slime" type="Node2D" unique_id=1770225941]
-script = ExtResource("1_slime")
