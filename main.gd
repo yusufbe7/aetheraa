@@ -235,12 +235,14 @@ const SLIME_SCENE := "res://slime.tscn"
 const FROG_SCENE := "res://frog.tscn"
 var _animal_scenes := []
 var animals := []                  # hozir dunyoda yurgan hayvonlar
-const MAX_ANIMALS := 5             # bir vaqtda nechta hayvon bo'lsin (kamaytirildi)
-const SPAWN_MIN_DIST := 260.0      # personajdan shu masofadan uzoqda paydo bo'ladi
-const SPAWN_MAX_DIST := 460.0
+var _anim_white_cache := {}        # hayvon kadrlarining oq versiyasi (hover kontur)
+const MAX_ANIMALS := 2             # bir vaqtda nechta hayvon bo'lsin (juda kam)
+const SPAWN_MIN_DIST := 280.0      # personajdan shu masofadan uzoqda paydo bo'ladi
+const SPAWN_MAX_DIST := 500.0
+const SPAWN_APART := 180.0         # hayvonlar bir-biridan shu masofada tarqoq chiqadi
 const DESPAWN_DIST := 650.0        # bundan uzoqlashsa yo'qoladi
 var _spawn_timer := 0.0
-const SPAWN_INTERVAL := 3.5        # har necha soniyada tekshiradi (sekinlashtirildi)
+const SPAWN_INTERVAL := 6.0        # har necha soniyada tekshiradi (sekin)
 
 # ---- HUD (jon, quvvat, hotbar) ----
 var hud: CanvasLayer = null
@@ -2090,20 +2092,28 @@ func _draw_rock(col: int, row: int) -> void:
 # Obyekt personajni to'sib qolyaptimi?
 # Agar HA -> obyekt shaffof chiziladi va personaj ko'rinib turadi.
 func _behind_alpha(cell: Vector2i, rect: Rect2) -> float:
-	if player == null:
-		return 1.0
-	# TEZLIK: uzoqdagi obyektlar uchun umuman hisoblamaymiz
-	if absf(rect.position.x - player.position.x) > 60.0 \
-			or absf(rect.position.y - player.position.y) > 80.0:
-		return 1.0
-	# Obyekt personajdan OLDINDA bo'lsagina to'sadi
-	var pc := local_to_grid(player.position)
-	if (cell.x + cell.y) <= (pc.x + pc.y):
-		return 1.0
-	# Personaj gavdasi taxminiy quti (oyoqdan boshgacha)
-	var pbox := Rect2(player.position - Vector2(9.0, 30.0), Vector2(18.0, 32.0))
-	if rect.intersects(pbox):
-		return BEHIND_ALPHA
+	var s := cell.x + cell.y
+	# --- Personaj orqasida bo'lsa ---
+	if player != null \
+			and absf(rect.position.x - player.position.x) <= 60.0 \
+			and absf(rect.position.y - player.position.y) <= 80.0:
+		var pc := local_to_grid(player.position)
+		if s > (pc.x + pc.y):
+			var pbox := Rect2(player.position - Vector2(9.0, 30.0), Vector2(18.0, 32.0))
+			if rect.intersects(pbox):
+				return BEHIND_ALPHA
+	# --- Hayvon orqasida bo'lsa (personaj kabi shaffof bo'ladi) ---
+	for a in animals:
+		if not is_instance_valid(a):
+			continue
+		if absf(rect.position.x - a.position.x) > 60.0 \
+				or absf(rect.position.y - a.position.y) > 80.0:
+			continue
+		var ac := local_to_grid(a.position)
+		if s > (ac.x + ac.y):
+			var abox := Rect2(a.position - Vector2(10.0, 22.0), Vector2(20.0, 26.0))
+			if rect.intersects(abox):
+				return BEHIND_ALPHA
 	return 1.0
 
 
@@ -3224,6 +3234,51 @@ func _attack_nearby_animal(cell: Vector2i) -> bool:
 	return true
 
 
+# Hayvon kadrining OQ versiyasi (hover konturi uchun), keshlanadi
+func _anim_white(tex: Texture2D) -> Texture2D:
+	if tex == null:
+		return null
+	if _anim_white_cache.has(tex):
+		return _anim_white_cache[tex]
+	if _anim_white_cache.size() > 400:
+		_anim_white_cache.clear()
+	var w := _make_white(tex)
+	_anim_white_cache[tex] = w
+	return w
+
+
+# Bitta hayvonni chuqurlik bo'yicha, personaj kabi, dunyo _draw() ichida chizadi.
+# Shunda oldindagi daraxt/tosh uni to'sadi (va shaffof bo'lib orqasidan ko'rinadi).
+func _draw_animal_sprite(a) -> void:
+	var spr := a as AnimatedSprite2D
+	if spr == null or spr.sprite_frames == null:
+		return
+	var anim := str(spr.animation)
+	if not spr.sprite_frames.has_animation(anim):
+		return
+	var tex := spr.sprite_frames.get_frame_texture(anim, spr.frame)
+	if tex == null:
+		return
+	var sc := spr.scale
+	var tw := float(tex.get_width())
+	var th := float(tex.get_height())
+	var center := spr.position + spr.offset
+
+	# Hover — sichqoncha shu hayvon ustidami? (markazidan ~20px)
+	var mouse_local := get_local_mouse_position()
+	var hovered: bool = mouse_local.distance_to(spr.position) < 20.0
+
+	draw_set_transform(center, 0.0, Vector2(-sc.x if spr.flip_h else sc.x, sc.y))
+	var dst := Rect2(-Vector2(tw * 0.5, th * 0.5), Vector2(tw, th))
+	if hovered:
+		var wtex := _anim_white(tex)
+		if wtex != null:
+			for off in OUTLINE_OFFSETS:
+				draw_texture_rect(wtex, Rect2(dst.position + off, dst.size), false, Color(1, 1, 1, 1))
+	draw_texture_rect(tex, dst, false, spr.modulate)
+	draw_set_transform(Vector2.ZERO, 0.0, Vector2.ONE)
+
+
 # Hayvonlarni personaj atrofida paydo qiladi va uzoqdagilarni olib tashlaydi
 func _update_animals() -> void:
 	if player == null or _animal_scenes.is_empty():
@@ -3254,13 +3309,14 @@ func _update_animals() -> void:
 		var scene = _animal_scenes[randi() % _animal_scenes.size()]
 		var animal = scene.instantiate()
 		animal.position = spot
+		animal.visible = false          # dunyo _draw() ichida chuqurlik bo'yicha chiziladi
 		add_child(animal)
 		animals.append(animal)
 
 
-# Personajdan uzoqda, quruqlikda bo'sh joy topadi
+# Personajdan uzoqda, quruqlikda, MAVJUD hayvonlardan tarqoq bo'sh joy topadi
 func _find_spawn_spot():
-	for attempt in range(20):
+	for attempt in range(24):
 		var angle = randf() * TAU
 		var dist = randf_range(SPAWN_MIN_DIST, SPAWN_MAX_DIST)
 		var p = player.position + Vector2(cos(angle), sin(angle)) * dist
@@ -3271,6 +3327,14 @@ func _find_spawn_spot():
 			continue
 		var deco = _decor_at(cell.x, cell.y)
 		if deco == "tree" or deco == "cactus" or deco == "rock":
+			continue
+		# Boshqa hayvonlardan uzoq bo'lsin (bitta joyda to'planmasin)
+		var too_close := false
+		for a in animals:
+			if is_instance_valid(a) and a.position.distance_to(p) < SPAWN_APART:
+				too_close = true
+				break
+		if too_close:
 			continue
 		return p
 	return null
@@ -4108,14 +4172,27 @@ func _draw() -> void:
 					elif sdeco == "stump":
 						_draw_stump_shadow(cell)
 
-	# 2) OBYEKTLAR + PERSONAJ — chuqurlik (s = col+row) bo'yicha
+	# 2) OBYEKTLAR + PERSONAJ + HAYVONLAR — chuqurlik (s = col+row) bo'yicha
 	var player_drawn = false
+	# Hayvonlarni ham chuqurlik bo'yicha aralashtirib chizamiz (daraxt orqasida
+	# ko'rinishi uchun). Saralab, s ga qarab navbat bilan chizamiz.
+	var anim_list := []
+	for a in animals:
+		if is_instance_valid(a):
+			var ac := local_to_grid(a.position)
+			anim_list.append({"a": a, "d": ac.x + ac.y})
+	anim_list.sort_custom(func(x, y): return int(x["d"]) < int(y["d"]))
+	var anim_i := 0
 	for s in range(r0 + c0, r1 + c1 + 1):
 		# Personaj shu chuqurlikda bo'lsa — obyektlardan OLDIN chizamiz
 		# (shunda oldindagi (kattaroq s) obyektlar personajni to'sadi)
 		if not player_drawn and s > p_depth:
 			_draw_player()
 			player_drawn = true
+		# Shu chuqurlikdan oldingi hayvonlarni chizamiz
+		while anim_i < anim_list.size() and s > int(anim_list[anim_i]["d"]):
+			_draw_animal_sprite(anim_list[anim_i]["a"])
+			anim_i += 1
 
 		var oA: int = maxi(c0, s - r1)
 		var oB: int = mini(c1, s - r0)
@@ -4166,6 +4243,11 @@ func _draw() -> void:
 	# Agar hali chizilmagan bo'lsa (eng oldinda) — oxirida chizamiz
 	if not player_drawn:
 		_draw_player()
+
+	# Qolgan (eng oldindagi) hayvonlar
+	while anim_i < anim_list.size():
+		_draw_animal_sprite(anim_list[anim_i]["a"])
+		anim_i += 1
 
 	# LAN: boshqa o'yinchilar
 	_draw_net_players()
