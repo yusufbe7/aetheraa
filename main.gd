@@ -218,6 +218,7 @@ const GRAVITY := 260.0     # tortishish
 # Hayvon sahnalari (o'z fayl nomlaringga moslab o'zgartir)
 const STAG_SCENE := "res://stag.tscn"
 const BOAR_SCENE := "res://boar.tscn"
+const SLIME_SCENE := "res://slime.tscn"
 var _animal_scenes := []
 var animals := []                  # hozir dunyoda yurgan hayvonlar
 const MAX_ANIMALS := 12            # bir vaqtda nechta hayvon bo'lsin
@@ -909,20 +910,23 @@ func _on_server_gone() -> void:
 func _ready() -> void:
 	height_noise.seed = WORLD_SEED
 	height_noise.noise_type = FastNoiseLite.TYPE_SIMPLEX_SMOOTH
-	# Pastroq frequency = KATTAROQ, kengroq suv havzalari (mayda ko'lmaklar emas)
-	height_noise.frequency = 0.038
+	# Pastroq frequency = KATTAROQ, kengroq suv havzalari (mayda ko'lmaklar emas).
+	# 0.038 -> 0.018: ko'llar ancha kattaroq va uzluksiz bo'ladi (mayda ko'lmaklar emas).
+	height_noise.frequency = 0.018
+	height_noise.fractal_octaves = 3              # katta havza + tabiiy qirg'oq chiziq
 
 	# ---- BIOM TIZIMI: HARORAT + NAMLIK (Minecraft uslubi) ----
 	# Juda past frequency = JUDA KATTA, uzluksiz biomlar.
 	# Bir biomdan boshqasiga yetish uchun uzoq yurish kerak bo'ladi.
+	# 0.0016 -> 0.0011: biomlar yanada kengroq, qorli hudud uzoqda qoladi.
 	biome_noise.seed = WORLD_SEED + 4242          # HARORAT
 	biome_noise.noise_type = FastNoiseLite.TYPE_SIMPLEX_SMOOTH
-	biome_noise.frequency = 0.0016
+	biome_noise.frequency = 0.0011
 	biome_noise.fractal_octaves = 2               # silliq, mayda shovqinsiz
 
 	humid_noise.seed = WORLD_SEED + 8888          # NAMLIK
 	humid_noise.noise_type = FastNoiseLite.TYPE_SIMPLEX_SMOOTH
-	humid_noise.frequency = 0.0021
+	humid_noise.frequency = 0.0015
 	humid_noise.fractal_octaves = 2
 
 	decor_noise.seed = WORLD_SEED + 999
@@ -1033,7 +1037,7 @@ func _ready() -> void:
 		player.visible = false
 
 	# Hayvon sahnalarini yuklaymiz
-	for path in [STAG_SCENE, BOAR_SCENE]:
+	for path in [STAG_SCENE, BOAR_SCENE, SLIME_SCENE]:
 		var sc = load(path)
 		if sc != null:
 			_animal_scenes.append(sc)
@@ -1690,7 +1694,7 @@ func _stable_index(col: int, row: int, salt: int, size: int) -> int:
 # -------------------------------------------------------------------------
 # Suv qancha ko'p bo'lsin: kattaroq son = KO'PROQ suv
 #   -0.52 (juda kam)  ...  -0.30 (juda ko'p)
-const WATER_LEVEL := -0.50
+const WATER_LEVEL := -0.42
 
 # Cho'l qancha ko'p bo'lsin: KICHIKROQ son = KO'PROQ cho'l
 #   0.28 (kam)  ...  0.05 (juda ko'p)
@@ -3077,6 +3081,42 @@ func _draw_net_players() -> void:
 		var nw := font.get_string_size(nm, HORIZONTAL_ALIGNMENT_LEFT, -1, 10).x
 		draw_string(font, ppos + Vector2(-nw / 2.0, -34.0), nm,
 			HORIZONTAL_ALIGNMENT_LEFT, -1, 10, Color(0.85, 0.95, 1.0))
+
+
+# Bosilgan joy yaqinida SLIME (hit metodi bor mob) bo'lsa hujum qiladi.
+# stag/boar da hit() yo'q -> ularga tegmaydi (xavfsiz).
+func _attack_nearby_slime(cell: Vector2i) -> bool:
+	if player == null or animals.is_empty():
+		return false
+	var click_pos := grid_to_local(cell.x, cell.y)
+	var best = null
+	var best_d := 1e9
+	for a in animals:
+		if not is_instance_valid(a) or not a.has_method("hit"):
+			continue
+		var d: float = a.position.distance_to(click_pos)
+		if d < 28.0 and d < best_d:
+			best = a
+			best_d = d
+	if best == null:
+		return false
+
+	# Yetib bormasa — avval yaqinlashamiz
+	if player.position.distance_to(best.position) > 52.0:
+		_last_path_target = Vector2i(999999, 999999)
+		_walk_player_to_cell(local_to_grid(best.position), true)
+		return true
+
+	# Qilich ko'proq zarar beradi, boshqa narsa faqat turtadi
+	var eq := get_equipped()
+	var dmg := 3 if (eq == "Qilich" or eq == "Sehrli qilich") else 1
+	if player.has_method("face_point"):
+		player.face_point(best.position)
+	if player.has_method("do_action"):
+		player.do_action("sword_attack" if dmg > 1 else "swing")
+	best.hit(dmg)
+	play_sfx("hit_stone", -6.0, 0.2)
+	return true
 
 
 # Hayvonlarni personaj atrofida paydo qiladi va uzoqdagilarni olib tashlaydi
@@ -5103,6 +5143,10 @@ func _click_world() -> void:
 		return
 	if plazas.has(cell):
 		_collect_building(cell, "plaza", "Tosh maydon")
+		return
+
+	# ---- Slime (mob) — bosilgan joyda mob bo'lsa hujum qilamiz ----
+	if _attack_nearby_slime(cell):
 		return
 
 	# ---- Ekin: pishgan bo'lsa yig'ish; urug' bo'lsa ekish ----
