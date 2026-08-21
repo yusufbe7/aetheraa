@@ -668,6 +668,12 @@ const GRASS_MAX_HP := 1    # O'T — bitta urishda kesiladi
 # 28 px balandlik ISO tile (32x16) bilan mosroq ko'rinadi.
 const ROCK_MAX_HEIGHT := 28.0
 
+# ---- DEKOR TABIIY JOYLASHUVI (jitter) — katak markazida qattiq turmasin ----
+const ROCK_JITTER_X := 16.0    # tosh gorizontal siljish (±yarmi)
+const ROCK_JITTER_Y := 9.0     # tosh vertikal siljish
+const TREE_JITTER_X := 12.0    # daraxt gorizontal siljish (kichikroq)
+const TREE_JITTER_Y := 6.0     # daraxt vertikal siljish
+
 # Silkinish effekti: qaysi katak, qancha vaqt silkinadi
 var shake_cell = null
 var shake_timer := 0.0
@@ -1728,6 +1734,11 @@ func _stable_index(col: int, row: int, salt: int, size: int) -> int:
 	var h = int(abs(hash(Vector3i(col, row, salt))))
 	return h % size
 
+
+# Barqaror (har doim bir xil) [0,1) tasodifiy son — dekor jitter uchun.
+func _cell_rand(col: int, row: int, salt: int) -> float:
+	return float(int(abs(hash(Vector3i(col, row, salt)))) % 10000) / 10000.0
+
 # -------------------------------------------------------------------------
 # BIOME BALANSI — SUV + QUM + YASHIL
 #
@@ -2107,10 +2118,15 @@ func _draw_rock(col: int, row: int) -> void:
 	var fh = float(info["fh"])
 	var center = grid_to_local(col, row)
 	center.y -= _lift_px(col, row)     # terrasa balandligi
+	# TABIIY JOYLASHUV: barqaror kichik siljish (katak markazida qattiq turmaydi)
+	center.x += (_cell_rand(col, row, 21) - 0.5) * ROCK_JITTER_X
+	center.y += (_cell_rand(col, row, 22) - 0.5) * ROCK_JITTER_Y
 
 	# rock_01.png juda katta (562x444).
 	# Uni ISO tile bilan mos bo'lishi uchun avtomatik kichraytiramiz.
-	var draw_scale := minf(1.0, ROCK_MAX_HEIGHT / fh)
+	# + barqaror o'lcham farqi (0.88..1.12) — bir xil ko'rinmaydi
+	var svar := 0.88 + _cell_rand(col, row, 23) * 0.24
+	var draw_scale := minf(1.0, ROCK_MAX_HEIGHT / fh) * svar
 	var dw: float = fw * draw_scale
 	var dh: float = fh * draw_scale
 
@@ -2839,6 +2855,9 @@ func _draw_tree(col: int, row: int) -> void:
 	var frame: int = tree_anim_frame % fcount
 	var center: Vector2 = grid_to_local(col, row)
 	center.y -= _lift_px(col, row)     # terrasa balandligi
+	# TABIIY JOYLASHUV: barqaror kichik siljish (bir xil qatorda turmaydi)
+	center.x += (_cell_rand(col, row, 31) - 0.5) * TREE_JITTER_X
+	center.y += (_cell_rand(col, row, 32) - 0.5) * TREE_JITTER_Y
 
 	# Silkinish
 	if shake_cell != null and shake_cell == Vector2i(col, row) and shake_timer > 0:
@@ -2854,10 +2873,12 @@ func _draw_tree(col: int, row: int) -> void:
 	# Har daraxtning O'Z maksimal balandligi bor.
 	# (Kaktus daraxtlardan pastroq -> 40, oddiy daraxt -> 76)
 	var my_max_h: float = float(info.get("max_h", TREE_MAX_HEIGHT))
+	# Barqaror o'lcham farqi (0.85..1.12) — daraxtlar bir xil bo'yda bo'lmaydi
+	var tvar := 0.85 + _cell_rand(col, row, 33) * 0.27
 	var draw_scale: float = minf(
 		1.0,
 		my_max_h / float(fh)
-	)
+	) * tvar
 
 	var dw: float = float(fw) * draw_scale
 	var dh: float = float(fh) * draw_scale
@@ -4027,8 +4048,11 @@ func _draw_tree_shadow(col: int, row: int) -> void:
 	var fh := float(info["fh"])
 	var fw := float(info["fw"])
 	var my_max_h: float = float(info.get("max_h", TREE_MAX_HEIGHT))
-	var s := minf(1.0, my_max_h / fh)
-	_draw_shadow(info.get("white", null), _shadow_base(col, row), fw * s, fh * s)
+	var s := minf(1.0, my_max_h / fh) * (0.85 + _cell_rand(col, row, 33) * 0.27)
+	var base := _shadow_base(col, row)
+	base.x += (_cell_rand(col, row, 31) - 0.5) * TREE_JITTER_X
+	base.y += (_cell_rand(col, row, 32) - 0.5) * TREE_JITTER_Y
+	_draw_shadow(info.get("white", null), base, fw * s, fh * s)
 
 
 func _draw_rock_shadow(col: int, row: int) -> void:
@@ -4037,8 +4061,11 @@ func _draw_rock_shadow(col: int, row: int) -> void:
 	var info = _rock_data[_stable_index(col, row, 11, _rock_data.size())]
 	var fh := float(info["fh"])
 	var fw := float(info["fw"])
-	var s := minf(1.0, ROCK_MAX_HEIGHT / fh)
-	_draw_shadow(info.get("white", null), _shadow_base(col, row), fw * s, fh * s)
+	var s := minf(1.0, ROCK_MAX_HEIGHT / fh) * (0.88 + _cell_rand(col, row, 23) * 0.24)
+	var base := _shadow_base(col, row)
+	base.x += (_cell_rand(col, row, 21) - 0.5) * ROCK_JITTER_X
+	base.y += (_cell_rand(col, row, 22) - 0.5) * ROCK_JITTER_Y
+	_draw_shadow(info.get("white", null), base, fw * s, fh * s)
 
 
 func _draw_stump_shadow(cell: Vector2i) -> void:
