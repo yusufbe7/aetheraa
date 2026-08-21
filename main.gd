@@ -4852,17 +4852,7 @@ func _unhandled_input(event: InputEvent) -> void:
 				queue_redraw()
 				return
 
-		if event.keycode == KEY_I or event.keycode == KEY_TAB:
-			if drag_item != null:
-				_cancel_drag()
-			craft_open = false
-			workbench_open = false
-			magic_open = false
-			anvil_open = false
-			chest_open = false
-			kiln_open = false
-			inv_open = not inv_open
-			return
+		# Inventar faqat E bilan ochiladi (yuqorida). I/TAB o'chirildi.
 
 		if inv_open or craft_open or workbench_open or magic_open or anvil_open or chest_open or kiln_open:
 			if event.keycode == KEY_ESCAPE:
