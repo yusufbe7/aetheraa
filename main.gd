@@ -187,12 +187,21 @@ const WORLD_SEED := 1337
 # v2: KATTA plato zonalari + toza cliff poligonlari (tile_040 tekis usti saqlanadi).
 # Buzilsa -> ELEVATION_ENABLED = false qiling, darhol tekis holatga qaytadi.
 const ELEVATION_ENABLED := true
-const ELEV_LEVELS := 3           # eng baland daraja (0..3)
-const LEVEL_LIFT := 14.0         # har daraja necha px yuqoriga ko'tariladi (ekranda)
-# Cliff yuzasi ranglari (SE = o'ng yuza yorug'roq, SW = chap yuza to'qroq)
+const ELEV_LEVELS := 2           # eng baland daraja (0..2) — height_0/1/2 tayllari
+const LEVEL_LIFT := 14.0         # (eski poligon-cliff usuli uchun — ishlatilmaydi)
 const CLIFF_COL_SE := Color(0.50, 0.37, 0.24)
 const CLIFF_COL_SW := Color(0.38, 0.28, 0.17)
 var _elev_cache := {}
+
+# ---- TERRASA BALANDLIK TAYLLARI (height_0/1/2, 128x128) ----
+# USE_HEIGHT_TILES=false -> eski poligon-cliff usuliga qaytadi.
+# Faqat GRASS biomда balandlik bo'ladi (sand/snow tekis qoladi).
+const USE_HEIGHT_TILES := true
+const TERRAIN_DIR := "res://assets/terrain/"
+const HEIGHT_TILE_SCALE := 0.45  # 128px tayl -> o'yin o'lchamiga (sozlash mumkin)
+# Har daraja o'tning ekrandagi ko'tarilishi (art o'lchovi * scale). Sozlanadi.
+const HEIGHT_LIFT_PX := [0.0, 5.9, 10.4]
+var height_tex := {}
 
 var cam_offset := Vector2.ZERO
 # Kamera: 2.0 atrofida uzoqroq ko'rinish — dunyo ko'proq ko'rinadi.
@@ -1015,6 +1024,12 @@ func _ready() -> void:
 		use_blocks = false
 		push_warning("Yer bloklari topilmadi: " + BLOCK_DIR)
 
+	# ---- TERRASA BALANDLIK TAYLLARI (height_0..2) ----
+	for hn in ["height_0", "height_1", "height_2"]:
+		var ht = load(TERRAIN_DIR + hn + ".png")
+		if ht != null:
+			height_tex[hn] = ht
+
 	wheat_textures.clear()
 	for wi in range(4):
 		var wt = _load_cropped_texture(WHEAT_DIR + "wheat_" + str(wi) + ".png")
@@ -1821,26 +1836,28 @@ func _elevation(col: int, row: int) -> int:
 	if _elev_cache.has(key):
 		return _elev_cache[key]
 	var lvl := 0
-	if _ground_type(col, row) != "water":
+	# Faqat GRASS biomда terrasa (height_* tayllari o't uchun). Boshqa biomlar tekis.
+	if _ground_type(col, row) == "grass":
 		var n := elev_noise.get_noise_2d(col, row)   # ~[-1, 1]
 		# Ko'p yer past, tepaliklar KAMROQ va KENGROQ (mayda flek emas)
-		if n > 0.18:
+		if n > 0.22:
 			lvl = 1
-		if n > 0.46:
+		if n > 0.52:
 			lvl = 2
-		if n > 0.70:
-			lvl = 3
 	if _elev_cache.size() > 60000:
 		_elev_cache.clear()
 	_elev_cache[key] = lvl
 	return lvl
 
 
-# Shu katak DRAW paytida necha px yuqoriga ko'tariladi
+# Shu katak DRAW paytida necha px yuqoriga ko'tariladi (height tayl o'lchoviga mos)
 func _lift_px(col: int, row: int) -> float:
 	if not ELEVATION_ENABLED:
 		return 0.0
-	return float(_elevation(col, row)) * LEVEL_LIFT
+	var l: int = _elevation(col, row)
+	if USE_HEIGHT_TILES:
+		return float(HEIGHT_LIFT_PX[mini(l, HEIGHT_LIFT_PX.size() - 1)])
+	return float(l) * LEVEL_LIFT
 
 
 # Old qo'shni darajasi. Suv bo'lsa -1 (dengizga tushadigan cliff uchun).
@@ -2106,6 +2123,22 @@ func _draw_elev_cliff(col: int, row: int) -> void:
 		draw_colored_polygon(PackedVector2Array([ll + up, b + up, b + d2, ll + d2]),
 			CLIFF_COL_SW)
 		draw_line((ll + up + ll + d2) * 0.5, (b + up + b + d2) * 0.5, line, 1.0)
+
+
+# TERRASA balandlik tayli (height_0/1/2) — o't usti + tuproq yon bloki.
+# Blok BAZASI (rasm ichida ~(64,91)) katakning pastki uchiga tushadi;
+# yuqori darajalarда o't usti avtomatik ko'tariladi (art ichida).
+func _draw_height_tile(col: int, row: int, level: int) -> void:
+	var tex: Texture2D = height_tex.get("height_" + str(level), null)
+	if tex == null:
+		# Zaxira: mavjud eng yaqin daraja
+		tex = height_tex.get("height_0", null)
+		if tex == null:
+			return
+	var s := HEIGHT_TILE_SCALE
+	var cell_bottom := grid_to_local(col, row) + Vector2(0.0, TILE_H / 2.0)
+	var pos := cell_bottom - Vector2(64.0, 91.0) * s
+	draw_texture_rect(tex, Rect2(pos, Vector2(128.0, 128.0) * s), false)
 
 
 func _draw_rock(col: int, row: int) -> void:
@@ -4206,14 +4239,14 @@ func _draw() -> void:
 						var wcol := WATER_SHALLOW_MOD.lerp(WATER_DEEP_MOD, depth01)
 						wcol.a = lerpf(SHALLOW_WATER_ALPHA, DEEP_WATER_ALPHA, depth01)
 						draw_texture(gtex, gc - half, wcol)
+					elif USE_HEIGHT_TILES and gr == "grass" and not tilled_cells.has(gcell):
+						# GRASS biom — terrasa balandlik bloki (height_0/1/2)
+						_draw_height_tile(col, row, _elevation(col, row))
 					else:
-						# Yer tayli — terrasa balandligiga KO'TARIB chiziladi
-						var llift := _lift_px(col, row)
-						draw_texture(gtex, gc - half - Vector2(0.0, llift))
-						if llift > 0.0:
-							_draw_elev_cliff(col, row)     # cliff yuzasi (pastroq qo'shniga)
-						elif not use_blocks:
-							_draw_cliff_cached(col, row)    # tekis qirg'oq (level 0)
+						# Boshqa biom yer tayli (balandliksiz, tekis)
+						draw_texture(gtex, gc - half)
+						if not use_blocks:
+							_draw_cliff_cached(col, row)    # tekis qirg'oq (suv cheti)
 			if paths.has(gcell):
 				_draw_path(gcell)
 			if plazas.has(gcell):
