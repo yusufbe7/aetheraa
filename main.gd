@@ -231,6 +231,7 @@ const GRAVITY := 260.0     # tortishish
 # Hayvon sahnalari (o'z fayl nomlaringga moslab o'zgartir)
 const STAG_SCENE := "res://stag.tscn"
 const BOAR_SCENE := "res://boar.tscn"
+const SLIME_SCENE := "res://slime.tscn"
 var _animal_scenes := []
 var animals := []                  # hozir dunyoda yurgan hayvonlar
 const MAX_ANIMALS := 12            # bir vaqtda nechta hayvon bo'lsin
@@ -1059,8 +1060,8 @@ func _ready() -> void:
 		# chuqurlikda o'zimiz chizamiz (depth sorting uchun)
 		player.visible = false
 
-	# Hayvon sahnalarini yuklaymiz (slime olib tashlandi)
-	for path in [STAG_SCENE, BOAR_SCENE]:
+	# Hayvon sahnalarini yuklaymiz
+	for path in [STAG_SCENE, BOAR_SCENE, SLIME_SCENE]:
 		var sc = load(path)
 		if sc != null:
 			_animal_scenes.append(sc)
@@ -3154,6 +3155,51 @@ func _draw_net_players() -> void:
 			HORIZONTAL_ALIGNMENT_LEFT, -1, 10, Color(0.85, 0.95, 1.0))
 
 
+# Bosilgan joy yaqinida hayvon (hit metodi bor) bo'lsa uradi.
+# Qo'l/qilich/bolta/kirka — HAR QANDAY narsa bilan urish mumkin.
+func _attack_nearby_animal(cell: Vector2i) -> bool:
+	if player == null or animals.is_empty():
+		return false
+	var click_pos := grid_to_local(cell.x, cell.y)
+	var best = null
+	var best_d := 1e9
+	for a in animals:
+		if not is_instance_valid(a) or not a.has_method("hit"):
+			continue
+		var d: float = a.position.distance_to(click_pos)
+		if d < 30.0 and d < best_d:
+			best = a
+			best_d = d
+	if best == null:
+		return false
+
+	# Yetib bormasa — avval yaqinlashamiz
+	if player.position.distance_to(best.position) > 54.0:
+		_last_path_target = Vector2i(999999, 999999)
+		_walk_player_to_cell(local_to_grid(best.position), true)
+		return true
+
+	# Zarar asbobga qarab: qilich ko'p, bolta/kirka o'rta, qo'l oz — lekin HAMMASI uradi
+	var eq := get_equipped()
+	var dmg := 1
+	match eq:
+		"Qilich", "Sehrli qilich":
+			dmg = 3
+		"Bolta", "Sehrli bolta", "Kirka", "Sehrli kirka", "Bolg'a":
+			dmg = 2
+		_:
+			dmg = 1
+
+	if player.has_method("face_point"):
+		player.face_point(best.position)
+	if player.has_method("do_action"):
+		var swing := "sword_attack" if dmg >= 3 else "swing"
+		player.do_action(swing)
+	best.hit(dmg)
+	play_sfx("hit_stone", -6.0, 0.2)
+	return true
+
+
 # Hayvonlarni personaj atrofida paydo qiladi va uzoqdagilarni olib tashlaydi
 func _update_animals() -> void:
 	if player == null or _animal_scenes.is_empty():
@@ -5189,6 +5235,10 @@ func _click_world() -> void:
 		return
 	if plazas.has(cell):
 		_collect_building(cell, "plaza", "Tosh maydon")
+		return
+
+	# ---- Hayvon (slime/boar/stag) — bosilgan joyda mob bo'lsa urish ----
+	if _attack_nearby_animal(cell):
 		return
 
 	# ---- Ekin: pishgan bo'lsa yig'ish; urug' bo'lsa ekish ----
