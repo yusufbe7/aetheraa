@@ -184,7 +184,9 @@ const WORLD_SEED := 1337
 #  ELEVATION_ENABLED = false qilsangiz hamma narsa AVVALGIDEK tekis bo'ladi
 #  (ya'ni bu tizim biror joyni buzsa, darhol o'chirib qo'yish mumkin).
 # =========================================================================
-const ELEVATION_ENABLED := true
+# HOZIRCHA O'CHIQ (terrasa "yoriqlari" g'alati edi). Yangi bloklar
+# tayyor bo'lgach qayta TRUE qilamiz.
+const ELEVATION_ENABLED := false
 const ELEV_LEVELS := 3           # eng baland daraja (0..3)
 const LEVEL_LIFT := 11.0         # har daraja necha px yuqoriga ko'tariladi (ekranda)
 var _elev_cache := {}
@@ -229,7 +231,6 @@ const GRAVITY := 260.0     # tortishish
 # Hayvon sahnalari (o'z fayl nomlaringga moslab o'zgartir)
 const STAG_SCENE := "res://stag.tscn"
 const BOAR_SCENE := "res://boar.tscn"
-const SLIME_SCENE := "res://slime.tscn"
 var _animal_scenes := []
 var animals := []                  # hozir dunyoda yurgan hayvonlar
 const MAX_ANIMALS := 12            # bir vaqtda nechta hayvon bo'lsin
@@ -580,7 +581,9 @@ var _dt_cache := {}      # Vector2i -> decor turi
 const BLOCK_DIR := "res://assets/blocks/"
 const BLOCK_SCALE := 0.5         # bloklar oldindan kichraytirilgan (90px -> 32px tayl)
 var block_tex := {}
-var use_blocks := true
+# FALSE = tekis tayl rejimi (yer = tile_040, suv = tile_104) — toza, "yoriqsiz".
+# Yangi suv/yer bloklaringiz Blender'da tayyor bo'lgach TRUE qilamiz.
+var use_blocks := false
 var _tile_cache := {}    # Vector2i -> Texture2D (yer tayli — tayyor tekstura)
 var _cliff_cache := {}   # Vector2i -> int bitmask (0=yo'q, 1=SE, 2=SW, 3=ikkisi)
 var dug_cells := {}      # Belkurak -> suv
@@ -1056,8 +1059,8 @@ func _ready() -> void:
 		# chuqurlikda o'zimiz chizamiz (depth sorting uchun)
 		player.visible = false
 
-	# Hayvon sahnalarini yuklaymiz
-	for path in [STAG_SCENE, BOAR_SCENE, SLIME_SCENE]:
+	# Hayvon sahnalarini yuklaymiz (slime olib tashlandi)
+	for path in [STAG_SCENE, BOAR_SCENE]:
 		var sc = load(path)
 		if sc != null:
 			_animal_scenes.append(sc)
@@ -3151,42 +3154,6 @@ func _draw_net_players() -> void:
 			HORIZONTAL_ALIGNMENT_LEFT, -1, 10, Color(0.85, 0.95, 1.0))
 
 
-# Bosilgan joy yaqinida SLIME (hit metodi bor mob) bo'lsa hujum qiladi.
-# stag/boar da hit() yo'q -> ularga tegmaydi (xavfsiz).
-func _attack_nearby_slime(cell: Vector2i) -> bool:
-	if player == null or animals.is_empty():
-		return false
-	var click_pos := grid_to_local(cell.x, cell.y)
-	var best = null
-	var best_d := 1e9
-	for a in animals:
-		if not is_instance_valid(a) or not a.has_method("hit"):
-			continue
-		var d: float = a.position.distance_to(click_pos)
-		if d < 28.0 and d < best_d:
-			best = a
-			best_d = d
-	if best == null:
-		return false
-
-	# Yetib bormasa — avval yaqinlashamiz
-	if player.position.distance_to(best.position) > 52.0:
-		_last_path_target = Vector2i(999999, 999999)
-		_walk_player_to_cell(local_to_grid(best.position), true)
-		return true
-
-	# Qilich ko'proq zarar beradi, boshqa narsa faqat turtadi
-	var eq := get_equipped()
-	var dmg := 3 if (eq == "Qilich" or eq == "Sehrli qilich") else 1
-	if player.has_method("face_point"):
-		player.face_point(best.position)
-	if player.has_method("do_action"):
-		player.do_action("sword_attack" if dmg > 1 else "swing")
-	best.hit(dmg)
-	play_sfx("hit_stone", -6.0, 0.2)
-	return true
-
-
 # Hayvonlarni personaj atrofida paydo qiladi va uzoqdagilarni olib tashlaydi
 func _update_animals() -> void:
 	if player == null or _animal_scenes.is_empty():
@@ -5222,10 +5189,6 @@ func _click_world() -> void:
 		return
 	if plazas.has(cell):
 		_collect_building(cell, "plaza", "Tosh maydon")
-		return
-
-	# ---- Slime (mob) — bosilgan joyda mob bo'lsa hujum qilamiz ----
-	if _attack_nearby_slime(cell):
 		return
 
 	# ---- Ekin: pishgan bo'lsa yig'ish; urug' bo'lsa ekish ----
