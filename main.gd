@@ -186,7 +186,7 @@ const WORLD_SEED := 1337
 # =========================================================================
 # v2: KATTA plato zonalari + toza cliff poligonlari (tile_040 tekis usti saqlanadi).
 # Buzilsa -> ELEVATION_ENABLED = false qiling, darhol tekis holatga qaytadi.
-const ELEVATION_ENABLED := true
+const ELEVATION_ENABLED := false  # tekis tile_040 (balandlik o'chirildi)
 const ELEV_LEVELS := 2           # eng baland daraja (0..2) — height_0/1/2 tayllari
 const LEVEL_LIFT := 14.0         # (eski poligon-cliff usuli uchun — ishlatilmaydi)
 const CLIFF_COL_SE := Color(0.50, 0.37, 0.24)
@@ -196,7 +196,7 @@ var _elev_cache := {}
 # ---- TERRASA BALANDLIK TAYLLARI (height_0/1/2, 128x128) ----
 # USE_HEIGHT_TILES=false -> eski poligon-cliff usuliga qaytadi.
 # Faqat GRASS biomда balandlik bo'ladi (sand/snow tekis qoladi).
-const USE_HEIGHT_TILES := true
+const USE_HEIGHT_TILES := false   # tekis tile_040 (height bloklari o'chirildi)
 const TERRAIN_DIR := "res://assets/terrain/"
 const HEIGHT_TILE_SCALE := 0.45  # 128px tayl -> o'yin o'lchamiga (sozlash mumkin)
 # Har daraja o'tning ekrandagi ko'tarilishi (art o'lchovi * scale). Sozlanadi.
