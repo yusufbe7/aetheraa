@@ -1315,9 +1315,11 @@ func _keys_to_list(d: Dictionary) -> Array:
 	return out
 
 
+const SAVE_VERSION := 1
+
 func save_game() -> bool:
 	var data := {
-		"version": 1,
+		"version": SAVE_VERSION,
 		"time": time_of_day,
 		"health": health,
 		"stamina": stamina,
@@ -1405,12 +1407,19 @@ func load_game() -> bool:
 		return false
 	var data: Dictionary = parsed
 
+	# Versiya tekshiruvi — kelajakda format o'zgarsa, eski/yangi save'lar
+	# jimgina buzilib ketmasin. Hozircha faqat ogohlantiramiz.
+	var save_ver := int(data.get("version", 0))
+	if save_ver > SAVE_VERSION:
+		push_warning("Save kelajakdagi versiyadan (v%d), o'yin v%d — ba'zi ma'lumot o'qilmasligi mumkin." % [save_ver, SAVE_VERSION])
+
 	time_of_day = float(data.get("time", time_of_day))
-	health = int(data.get("health", health))
-	stamina = float(data.get("stamina", stamina))
-	wood_count = int(data.get("wood", 0))
-	stone_count = int(data.get("stone", 0))
-	selected_slot = int(data.get("selected", 0))
+	# Chegaralab o'qiymiz: buzuq yoki qo'lda o'zgartirilgan save o'yinni buzmasin
+	health = clampi(int(data.get("health", health)), 0, MAX_HEALTH)
+	stamina = clampf(float(data.get("stamina", stamina)), 0.0, MAX_STAMINA)
+	wood_count = max(0, int(data.get("wood", 0)))
+	stone_count = max(0, int(data.get("stone", 0)))
+	selected_slot = clampi(int(data.get("selected", 0)), 0, HOTBAR_SLOTS - 1)
 	zoom = clampf(float(data.get("zoom", zoom)), ZOOM_MIN, ZOOM_MAX)
 
 	# --- Inventar ---
@@ -2748,6 +2757,13 @@ func _draw_tree(col: int, row: int) -> void:
 const WOOD_DROP_SIZE := Vector2(13.0, 11.0)
 const STONE_DROP_SIZE := Vector2(13.0, 13.0)
 
+# Sakrab chiqqan resurs itemining holatlari (state-machine).
+# String literal o'rniga shu constlarni ishlatamiz: terish xatosi
+# (masalan WOOD_FLu) endi runtime'da emas, parse vaqtida ushlanadi.
+const WOOD_FLY := "fly"            # havoda uchib-tushmoqda
+const WOOD_SETTLE := "settle"      # yerda yotibdi, personajni kutmoqda
+const WOOD_TO_PLAYER := "to_player" # personajga uchib bormoqda
+
 # Daraxt/tosh singanda resurs sakratib chiqaramiz
 # kind: "wood" yoki "stone"
 func _spawn_drop(cell: Vector2i, kind: String, bonus: int = 0) -> void:
@@ -2798,7 +2814,7 @@ func _spawn_drop(cell: Vector2i, kind: String, bonus: int = 0) -> void:
 			"z": 0.0,
 			"zvel": randf_range(30.0, 52.0),
 			"variant": 0,
-			"state": "fly",
+			"state": WOOD_FLY,
 			"kind": this_kind,
 			"born": Time.get_ticks_msec(),
 		})
@@ -5473,7 +5489,7 @@ func _update_wood(delta: float) -> void:
 	for item in wood_items:
 		var age = now - item["born"]
 
-		if item["state"] == "fly":
+		if item["state"] == WOOD_FLY:
 			# Sakrash: z balandlik, gorizontal harakat, tortishish
 			item["z"] += item["zvel"] * delta
 			item["zvel"] -= gravity * delta
@@ -5484,15 +5500,15 @@ func _update_wood(delta: float) -> void:
 				item["z"] = 0
 				item["zvel"] = 0
 				item["vel"] = Vector2.ZERO
-				item["state"] = "settle"
+				item["state"] = WOOD_SETTLE
 
-		elif item["state"] == "settle":
+		elif item["state"] == WOOD_SETTLE:
 			# Yerda sochilib YOTADI. Personaj yaqin kelsagina uchadi.
 			if player != null and age > 350:
 				if player.position.distance_to(item["pos"]) < 46.0:
-					item["state"] = "to_player"
+					item["state"] = WOOD_TO_PLAYER
 
-		elif item["state"] == "to_player":
+		elif item["state"] == WOOD_TO_PLAYER:
 			# Personajga uchib boradi (tezlashib)
 			if player == null:
 				continue
@@ -5557,7 +5573,9 @@ class HudDraw extends Control:
 		_draw_toasts(vp)
 		_draw_equipped(start_x + total_w / 2.0, bottom_y - 22.0)
 		_draw_hotbar(start_x, bottom_y, total_w)
-		_draw_resource_chips(vp, bottom_y)
+		# Chap-pastdagi doimiy resurs paneli olib tashlandi:
+		# yig'ilgan narsa endi faqat o'ng-yuqoridagi vaqtinchalik toast bilan
+		# ko'rsatiladi (bir necha soniyada o'chadi). Umumiy son hotbar'da ko'rinadi.
 
 		# Inventar ochiq bo'lsa — fon qorayadi
 		if world.inv_open or world.craft_open or world.workbench_open \
@@ -5688,7 +5706,8 @@ class HudDraw extends Control:
 			var timer: float = float(t["timer"])
 			# Kirish/chiqish fade (oxirgi 0.5s da so'nadi)
 			var fade_out: float = clampf(timer / 0.5, 0.0, 1.0)
-			var txt := str(t["name"]) + "  " + str(t["count"])
+			# Narsa nomi o'yin tiliga mos ko'rsatiladi (Lang.n)
+			var txt := Lang.n(str(t["name"])) + "  +" + str(t["count"])
 			var fs := 13
 			var tw := font.get_string_size(txt, HORIZONTAL_ALIGNMENT_LEFT, -1, fs).x
 			var w: float = tw + 46.0
