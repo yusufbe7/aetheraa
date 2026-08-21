@@ -288,6 +288,10 @@ var inv := []
 var inv_open := false           # inventar oynasi ochiqmi
 var inv_hover := -1             # sichqoncha qaysi katak ustida
 
+# ---- ALOHIDA TOOL KATAGI (32 katakning CHAP tomonida) ----
+# Yasash stoli shu yerda turadi (32 katak ichida emas). Cheksiz manba.
+var tool_slot = null
+
 # ---- SUDRAB KO'CHIRISH (drag & drop) ----
 # Inventar ochiq bo'lganda narsani ushlab, boshqa katakka (yoki hotbarga) olib qo'yish
 var drag_item = null            # ushlangan narsa
@@ -1086,17 +1090,16 @@ func _ready() -> void:
 	for i in range(INV_SIZE):
 		inv[i] = null
 
-	# STARTER: Yasash stoli — HOTBAR'da emas, inventarning 2-qatorida.
-	# U CHEKSIZ: qo'yganda kamaymaydi.
-	# O'yinchi uni inventardan (I) hotbarga SUDRAB olib chiqadi.
-	inv[HOTBAR_SLOTS] = {
+	# STARTER: Yasash stoli — ALOHIDA tool katagida (32 katak ichida emas).
+	# U CHEKSIZ: qo'yganda kamaymaydi. Hotbarga SUDRAB olib chiqiladi.
+	tool_slot = {
 		"name": "Yasash stoli",
 		"icon": "workbench",
 		"count": 1,
 		"infinite": true,
 	}
-	# Boshlang'ich urug' (ekin ekish uchun)
-	inv[HOTBAR_SLOTS + 1] = {"name": "Urug'", "icon": "item_seed", "count": 12}
+	# Boshlang'ich urug' (ekin ekish uchun) — inventarning 2-qatorida
+	inv[HOTBAR_SLOTS] = {"name": "Urug'", "icon": "item_seed", "count": 12}
 
 	# Narsa ikonkalarini yuklaymiz.
 	# YANGI itemlar (leather/mushroom/egg/cloth/thread/meat/jelly) — ikonka
@@ -1472,6 +1475,11 @@ func load_game() -> bool:
 				slot["infinite"] = true
 			inv[i] = slot
 		else:
+			inv[i] = null
+
+	# Eski save: Yasash stoli endi ALOHIDA tool katagida — grid'dan olib tashlaymiz
+	for i in range(inv.size()):
+		if inv[i] != null and str(inv[i].get("name", "")) == "Yasash stoli":
 			inv[i] = null
 
 	crafted = data.get("crafted", {}).duplicate()
@@ -4620,6 +4628,18 @@ func _unhandled_input(event: InputEvent) -> void:
 		# INVENTAR ochiq: chap tugma bilan narsani SUDRAB ko'chiramiz
 		if inv_open and event.button_index == MOUSE_BUTTON_LEFT:
 			if event.pressed:
+				# Avval ALOHIDA tool katagini tekshiramiz (chapda)
+				if tool_slot != null and drag_item == null \
+						and tool_slot_rect(get_viewport_rect().size).has_point(event.position):
+					# Cheksiz manba -> bitta nusxa olamiz (asl joyda qoladi)
+					drag_item = {
+						"name": tool_slot["name"],
+						"icon": tool_slot["icon"],
+						"count": 1,
+					}
+					drag_from = -1
+					queue_redraw()
+					return
 				var idx := inv_slot_at(event.position)
 				if idx >= 0 and inv[idx] != null:
 					if bool(inv[idx].get("infinite", false)):
@@ -4938,6 +4958,15 @@ func inv_layout(vp: Vector2) -> Dictionary:
 		"x": x, "y": y,
 		"grid_w": grid_w, "grid_h": grid_h,
 	}
+
+
+# Alohida TOOL katagi (32 katakning chap tomonida) joylashuvi
+func tool_slot_rect(vp: Vector2) -> Rect2:
+	var L := inv_layout(vp)
+	var cell: float = L["cell"]
+	var x: float = float(L["x"]) - cell - 16.0
+	var y: float = float(L["y"]) + (float(L["grid_h"]) - cell) / 2.0
+	return Rect2(x, y, cell, cell)
 
 
 # Sichqoncha inventarning qaysi katagida? (-1 = hech qaysi)
@@ -6245,6 +6274,21 @@ class HudDraw extends Control:
 							Vector2(rect.end.x - 5.0, rect.end.y - 6.0), font)
 
 		world.inv_hover = hover
+
+		# ---- ALOHIDA TOOL KATAGI (chapda) — Yasash stoli ----
+		if world.tool_slot != null:
+			var trect := world.tool_slot_rect(vp)
+			var thover := trect.has_point(mp)
+			var tfill := Color(0.05, 0.06, 0.05, 0.80)
+			var tborder := Color(0.42, 0.52, 0.40, 0.80)
+			if thover:
+				tfill = tfill.lightened(0.16)
+				tborder = Color(0.92, 0.94, 0.85, 0.95)
+			_draw_rounded_panel(trect, tfill, tborder, 6.0, 1.0)
+			_icon(str(world.tool_slot["icon"]), trect, 9.0)
+			if bool(world.tool_slot.get("infinite", false)):
+				_draw_stack_number("~",
+					Vector2(trect.end.x - 5.0, trect.end.y - 6.0), font)
 
 		# Pastda ko'rsatma
 		var hint := Lang.t("ui.drag_hint")
