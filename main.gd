@@ -176,7 +176,18 @@ var height_noise := FastNoiseLite.new()
 var biome_noise := FastNoiseLite.new()   # HARORAT
 var humid_noise := FastNoiseLite.new()   # NAMLIK
 var decor_noise := FastNoiseLite.new()
+var elev_noise := FastNoiseLite.new()    # YER BALANDLIGI (terrasa darajalari)
 const WORLD_SEED := 1337
+
+# =========================================================================
+#  YER BALANDLIGI (TERRASA) — 4-rasmdagi Minecraft uslubi
+#  ELEVATION_ENABLED = false qilsangiz hamma narsa AVVALGIDEK tekis bo'ladi
+#  (ya'ni bu tizim biror joyni buzsa, darhol o'chirib qo'yish mumkin).
+# =========================================================================
+const ELEVATION_ENABLED := true
+const ELEV_LEVELS := 3           # eng baland daraja (0..3)
+const LEVEL_LIFT := 11.0         # har daraja necha px yuqoriga ko'tariladi (ekranda)
+var _elev_cache := {}
 
 var cam_offset := Vector2.ZERO
 # Kamera: 2.0 atrofida uzoqroq ko'rinish — dunyo ko'proq ko'rinadi.
@@ -737,6 +748,7 @@ func net_ground(kind: String, cell: Vector2i) -> void:
 			_dt_cache.erase(k)
 			_tile_cache.erase(k)
 			_cliff_cache.erase(k)
+			_elev_cache.erase(k)
 	queue_redraw()
 
 
@@ -815,6 +827,7 @@ func net_world_sync(data: Dictionary) -> void:
 	_dt_cache.clear()
 	_tile_cache.clear()
 	_cliff_cache.clear()
+	_elev_cache.clear()
 	show_hint(Lang.t("hint.world_synced"), 2.5)
 	queue_redraw()
 
@@ -928,6 +941,13 @@ func _ready() -> void:
 	humid_noise.noise_type = FastNoiseLite.TYPE_SIMPLEX_SMOOTH
 	humid_noise.frequency = 0.0015
 	humid_noise.fractal_octaves = 2
+
+	# ---- YER BALANDLIGI (terrasa darajalari) ----
+	# Past frequency = kengroq, silliq balandlik zonalari (keskin sakramaydi).
+	elev_noise.seed = WORLD_SEED + 555
+	elev_noise.noise_type = FastNoiseLite.TYPE_SIMPLEX_SMOOTH
+	elev_noise.frequency = 0.009
+	elev_noise.fractal_octaves = 2
 
 	decor_noise.seed = WORLD_SEED + 999
 	decor_noise.noise_type = FastNoiseLite.TYPE_SIMPLEX
@@ -1518,6 +1538,7 @@ func load_game() -> bool:
 	_dt_cache.clear()
 	_tile_cache.clear()
 	_cliff_cache.clear()
+	_elev_cache.clear()
 	_apply_transform()
 	queue_redraw()
 	if hud_node != null:
@@ -1744,6 +1765,45 @@ func _ground_type(col: int, row: int) -> String:
 		_gt_cache.clear()
 	_gt_cache[key] = res
 	return res
+
+
+# Shu katakning BALANDLIK DARAJASI (0..ELEV_LEVELS).
+# Suv doim 0 (dengiz sathi). Quruqlik noise bo'yicha ko'tariladi.
+func _elevation(col: int, row: int) -> int:
+	if not ELEVATION_ENABLED:
+		return 0
+	var key := Vector2i(col, row)
+	if _elev_cache.has(key):
+		return _elev_cache[key]
+	var lvl := 0
+	if _ground_type(col, row) != "water":
+		var n := elev_noise.get_noise_2d(col, row)   # ~[-1, 1]
+		# Ko'p yer past (0-1), balandliklar kamroq — tabiiy terrasa
+		if n > 0.10:
+			lvl = 1
+		if n > 0.34:
+			lvl = 2
+		if n > 0.58:
+			lvl = 3
+	if _elev_cache.size() > 60000:
+		_elev_cache.clear()
+	_elev_cache[key] = lvl
+	return lvl
+
+
+# Shu katak DRAW paytida necha px yuqoriga ko'tariladi
+func _lift_px(col: int, row: int) -> float:
+	if not ELEVATION_ENABLED:
+		return 0.0
+	return float(_elevation(col, row)) * LEVEL_LIFT
+
+
+# Old qo'shni darajasi. Suv bo'lsa -1 (dengizga tushadigan cliff uchun).
+func _front_level(col: int, row: int) -> int:
+	if _ground_type(col, row) == "water":
+		return -1
+	return _elevation(col, row)
+
 
 # Shu suv katagi uchun to'g'ri chetli taylni tanlaydi
 func _water_tile_for(col: int, row: int) -> String:
@@ -1983,6 +2043,7 @@ func _draw_rock(col: int, row: int) -> void:
 	var fw = float(info["fw"])
 	var fh = float(info["fh"])
 	var center = grid_to_local(col, row)
+	center.y -= _lift_px(col, row)     # terrasa balandligi
 
 	# rock_01.png juda katta (562x444).
 	# Uni ISO tile bilan mos bo'lishi uchun avtomatik kichraytiramiz.
@@ -2214,6 +2275,7 @@ func _draw_grasstuft(cell: Vector2i) -> void:
 	if grass_texture == null:
 		return
 	var center := grid_to_local(cell.x, cell.y)
+	center.y -= _lift_px(cell.x, cell.y)     # terrasa balandligi
 	var tw := float(grass_texture.get_width())
 	var th := float(grass_texture.get_height())
 	if tw <= 0.0 or th <= 0.0:
@@ -2237,6 +2299,7 @@ func _draw_stump(cell: Vector2i) -> void:
 	if stump_texture == null:
 		return
 	var center := grid_to_local(cell.x, cell.y)
+	center.y -= _lift_px(cell.x, cell.y)     # terrasa balandligi
 	var tw := float(stump_texture.get_width())
 	var th := float(stump_texture.get_height())
 	if tw <= 0.0 or th <= 0.0:
@@ -2576,6 +2639,7 @@ func _draw_placeable_object(
 		return
 
 	var center := grid_to_local(cell.x, cell.y)
+	center.y -= _lift_px(cell.x, cell.y)     # terrasa balandligi
 	var tex_w := float(tex.get_width())
 	var tex_h := float(tex.get_height())
 
@@ -2703,6 +2767,7 @@ func _draw_tree(col: int, row: int) -> void:
 
 	var frame: int = tree_anim_frame % fcount
 	var center: Vector2 = grid_to_local(col, row)
+	center.y -= _lift_px(col, row)     # terrasa balandligi
 
 	# Silkinish
 	if shake_cell != null and shake_cell == Vector2i(col, row) and shake_timer > 0:
@@ -2996,11 +3061,14 @@ func _draw_player() -> void:
 	var w: float = float(tex.get_width()) * PLAYER_DRAW_SCALE
 	var h: float = float(tex.get_height()) * PLAYER_DRAW_SCALE
 
-	# Sakrash balandligi (SPACE bosilganda ko'tariladi)
-	var draw_pos := player.position - Vector2(0.0, jump_z)
+	# Turgan katakning terrasa balandligi — personaj yer ustida tursin
+	var _pcell := local_to_grid(player.position)
+	var plift := _lift_px(_pcell.x, _pcell.y)
+
+	# Sakrash balandligi (SPACE bosilganda ko'tariladi) + terrasa ko'tarilishi
+	var draw_pos := player.position - Vector2(0.0, jump_z + plift)
 
 	# Suzayaptimi? (suv ustida) — bo'lsa quyosh soyasi o'rniga to'lqin chiziladi
-	var _pcell := local_to_grid(player.position)
 	var in_water: bool = _ground_type(_pcell.x, _pcell.y) == "water"
 
 	# Quyosh soyasi — kunduzi, daraxtlar bilan bir xil yo'nalishda.
@@ -3014,7 +3082,7 @@ func _draw_player() -> void:
 		var sh: float = h * jshrink
 		var m := Transform2D(Vector2(1.0, 0.0),
 			Vector2(shear, SHADOW_SQUASH),
-			player.position + Vector2(0.0, 3.0))
+			player.position + Vector2(0.0, 3.0 - plift))
 		draw_set_transform_matrix(m)
 		# Personaj sprite'ining o'zini qora qilib chizamiz
 		draw_texture_rect(tex, Rect2(Vector2(-sw / 2.0, -sh), Vector2(sw, sh)),
@@ -3796,7 +3864,7 @@ func _draw_shadow(white_tex: Texture2D, base: Vector2, dw: float, dh: float) -> 
 
 # Katakning yerga tegish nuqtasi (soya shu yerdan boshlanadi)
 func _shadow_base(col: int, row: int) -> Vector2:
-	return grid_to_local(col, row) + Vector2(0.0, TILE_H / 2.0)
+	return grid_to_local(col, row) + Vector2(0.0, TILE_H / 2.0 - _lift_px(col, row))
 
 
 # ---- Har tur uchun soya ----
@@ -3900,19 +3968,30 @@ func _draw() -> void:
 				# --- SUV BLOKI: yerdan PASTROQ (cho'kkan ko'l) ---
 				_draw_block(block_tex["block_water"], col, row)
 			elif use_blocks and gr != "water":
-				# --- 3D BLOK (qalinlikka ega) ---
+				# --- 3D BLOK (qalinlikka ega) + TERRASA BALANDLIGI ---
+				var lvl := _elevation(col, row)
+				var lift := float(lvl) * LEVEL_LIFT
 				var bname := _block_name_for(gr, gcell)
-				var is_tall := false
-				if _cliff_mask(col, row) != 0:
-					var tname := bname + "_tall"
-					if block_tex.has(tname):
-						bname = tname
-						is_tall = true
-				_draw_block(block_tex.get(bname, null), col, row, 0.0, is_tall)
-				# Ekin -> bug'doy bloki yer ustiga
+
+				# Cliff yon devori: shu ustundan PAST bo'lgan old qo'shnilarga
+				# qarab, ochilib qolgan yonni block_dirt bilan to'ldiramiz.
+				# Old (kameraga qaragan) qo'shnilar: SE=(col+1,row), SW=(col,row+1).
+				var lvl_se := _front_level(col + 1, row)
+				var lvl_sw := _front_level(col, row + 1)
+				var lowest: int = mini(lvl_se, lvl_sw)   # -1 = suv
+				var floor_lvl: int = maxi(lowest + 1, 0)
+				var dirt = block_tex.get("block_dirt", null)
+				var kk := lvl - 1
+				while kk >= floor_lvl:
+					_draw_block(dirt, col, row, -(float(kk) * LEVEL_LIFT))
+					kk -= 1
+
+				# Ust yuzasi (biom bloki), ko'tarilgan holda
+				_draw_block(block_tex.get(bname, null), col, row, -lift)
+				# Ekin -> bug'doy bloki yer ustiga (o'sha balandlikda)
 				if crops.has(gcell):
 					var st: int = clampi(int(crops[gcell]["stage"]), 0, 3)
-					_draw_block(block_tex.get("block_wheat_" + str(st), null), col, row)
+					_draw_block(block_tex.get("block_wheat_" + str(st), null), col, row, -lift)
 			else:
 				# --- Zaxira: yassi tayl (suv yoki bloklar topilmasa) ---
 				var gtex: Texture2D
@@ -5200,6 +5279,7 @@ func _click_world() -> void:
 					_dt_cache.erase(k)
 					_tile_cache.erase(k)
 					_cliff_cache.erase(k)
+					_elev_cache.erase(k)
 			if player.has_method("face_point"):
 				player.face_point(grid_to_local(cell.x, cell.y))
 			if player.has_method("do_action"):

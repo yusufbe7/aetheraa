@@ -30,6 +30,7 @@ const BODY_R := 9.0
 var _wobble := 0.0
 var hp := 3               # jon (qilich bilan urilganda kamayadi)
 var _hurt_flash := 0.0
+var _terr := 0.0          # turgan katakning terrasa balandligi (px)
 
 # Slime rangi (5-rasmdagi ko'k kristall jelatin)
 const COL_BODY := Color(0.30, 0.72, 0.92, 0.82)
@@ -124,6 +125,11 @@ func _process(delta: float) -> void:
 		if _hop_cooldown <= 0.0:
 			_pick_new_target()
 
+	# Terrasa balandligi — yer ustida tursin
+	if world != null and world.has_method("_lift_px"):
+		var cell := world.local_to_grid(position)
+		_terr = world._lift_px(cell.x, cell.y)
+
 	queue_redraw()
 
 
@@ -168,14 +174,14 @@ func _die() -> void:
 #  PROCEDURAL CHIZISH — ko'k jelatin blob
 # =========================================================================
 func _draw() -> void:
-	# z balandlik: tanani yuqoriga siljitamiz, soya joyida qoladi
-	var lift := Vector2(0.0, -z)
+	# z balandlik (sakrash) + terrasa balandligi: tanani yuqoriga siljitamiz
+	var lift := Vector2(0.0, -z - _terr)
 
-	# ---- Soya (yerda) ----
+	# ---- Soya (yerda — terrasa usti) ----
 	var shadow_w := BODY_R * 1.6 * (1.0 - z / 120.0)
 	shadow_w = maxf(shadow_w, BODY_R * 0.5)
 	draw_set_transform(Vector2.ZERO, 0.0, Vector2.ONE)
-	_draw_ellipse(Vector2(0.0, 2.0), shadow_w, shadow_w * 0.4,
+	_draw_ellipse(Vector2(0.0, 2.0 - _terr), shadow_w, shadow_w * 0.4,
 		Color(0.0, 0.0, 0.0, 0.22 * (1.0 - z / 140.0)))
 
 	# ---- Squash & stretch ----
