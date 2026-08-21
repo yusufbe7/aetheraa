@@ -23,9 +23,15 @@ var target := Vector2.ZERO
 var is_moving := false
 var _cooldown := 0.0
 
-var hp := 3
+var hp := 5                  # qo'l bilan 5 marta, asbob bilan 3 marta
 var dying := false
 var hurting := false
+
+# ---- HUJUM (personajni ta'qib qiladi va uradi) ----
+const AGGRO_DIST := 120.0    # shu masofada personajni ko'rsa quvadi
+const ATTACK_DIST := 20.0    # shu masofada zarba beradi
+const ATTACK_CD := 1.0       # zarbalar orasidagi vaqt
+var _attack_t := 0.0
 
 var _mat: ShaderMaterial = null
 
@@ -47,8 +53,8 @@ func _ready() -> void:
 	play("idle")
 	_ensure_on_land()
 	_pick_new_target()
-	# Har slime biroz boshqacha o'lchamda
-	var s := randf_range(0.8, 1.15)
+	# ~32x32 o'lchamda ko'rinsin (kadr 96x32, tana kichik) -> kichraytiramiz
+	var s := randf_range(0.62, 0.72)
 	scale = Vector2(s, s)
 
 
@@ -78,11 +84,12 @@ func _add_anim(frames: SpriteFrames, anim_name: String, path: String,
 		frames.add_frame(anim_name, atlas)
 
 
+# To'siqmi? Suv / daraxt / tosh / bino — hammasidan chetlab o'tadi.
 func _is_water_at(local_pos: Vector2) -> bool:
-	if world == null or not world.has_method("_ground_type"):
+	if world == null or not world.has_method("_is_occupied_cell"):
 		return false
 	var cell: Vector2i = world.local_to_grid(local_pos)
-	return world._ground_type(cell.x, cell.y) == "water"
+	return world._is_occupied_cell(cell)
 
 
 func _ensure_on_land() -> void:
@@ -122,7 +129,31 @@ func _process(delta: float) -> void:
 	if dying:
 		return
 
-	# Yurish (suvdan qochib)
+	if _attack_t > 0.0:
+		_attack_t -= delta
+
+	# ---- HUJUM: personaj yaqin bo'lsa quvadi va uradi ----
+	if not hurting and world != null and world.player != null:
+		var to_p := world.player.position - position
+		var pdist := to_p.length()
+		if pdist < AGGRO_DIST:
+			if pdist <= ATTACK_DIST:
+				# Yetdi — zarba beradi (cooldown bilan)
+				if _attack_t <= 0.0:
+					_attack_t = ATTACK_CD
+					if world.has_method("hurt_player"):
+						world.hurt_player(1)
+			else:
+				# Personajga qarab yaqinlashadi (to'siqdan chetlab)
+				var step := to_p.normalized() * move_speed * delta
+				var nxt := position + step
+				if not _is_water_at(nxt):
+					position = nxt
+					if absf(to_p.x) > 0.5:
+						flip_h = to_p.x < 0.0
+			return
+
+	# ---- Oddiy kezish (personaj uzoqda) ----
 	if is_moving and not hurting:
 		var to_t := target - position
 		var d := to_t.length()

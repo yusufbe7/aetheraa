@@ -235,18 +235,19 @@ const SLIME_SCENE := "res://slime.tscn"
 const FROG_SCENE := "res://frog.tscn"
 var _animal_scenes := []
 var animals := []                  # hozir dunyoda yurgan hayvonlar
-const MAX_ANIMALS := 12            # bir vaqtda nechta hayvon bo'lsin
-const SPAWN_MIN_DIST := 220.0      # personajdan shu masofadan uzoqda paydo bo'ladi
-const SPAWN_MAX_DIST := 420.0
-const DESPAWN_DIST := 700.0        # bundan uzoqlashsa yo'qoladi
+const MAX_ANIMALS := 5             # bir vaqtda nechta hayvon bo'lsin (kamaytirildi)
+const SPAWN_MIN_DIST := 260.0      # personajdan shu masofadan uzoqda paydo bo'ladi
+const SPAWN_MAX_DIST := 460.0
+const DESPAWN_DIST := 650.0        # bundan uzoqlashsa yo'qoladi
 var _spawn_timer := 0.0
-const SPAWN_INTERVAL := 1.5        # har necha soniyada tekshiradi
+const SPAWN_INTERVAL := 3.5        # har necha soniyada tekshiradi (sekinlashtirildi)
 
 # ---- HUD (jon, quvvat, hotbar) ----
 var hud: CanvasLayer = null
 var hud_node = null
 const MAX_HEALTH := 10
 var health := 10
+var _hurt_cooldown := 0.0          # jon olgandan keyin qisqa himoya (invuln)
 const MAX_STAMINA := 100.0
 var stamina := 100.0
 var selected_slot := 0            # 0..7 — tanlangan hotbar katagi
@@ -3160,6 +3161,31 @@ func _draw_net_players() -> void:
 			HORIZONTAL_ALIGNMENT_LEFT, -1, 10, Color(0.85, 0.95, 1.0))
 
 
+# Hayvon (slime) personajga zarba bersa chaqiriladi -> jon kamayadi
+func hurt_player(amount: int) -> void:
+	if _hurt_cooldown > 0.0 or amount <= 0 or health <= 0:
+		return
+	health = maxi(0, health - amount)
+	_hurt_cooldown = 0.8            # qisqa himoya — birdaniga tugab qolmasin
+	play_sfx("hit_stone", -4.0, 0.15)
+	if player != null and player.has_method("do_action"):
+		player.do_action("damage")
+	if hud_node != null:
+		hud_node.queue_redraw()
+	if health <= 0:
+		_respawn_player()
+
+
+func _respawn_player() -> void:
+	health = MAX_HEALTH
+	_hurt_cooldown = 1.5
+	if player != null and last_player_safe_pos != Vector2.ZERO:
+		player.position = last_player_safe_pos
+	show_hint("Qaytadan tiriltirilding", 2.0)
+	if hud_node != null:
+		hud_node.queue_redraw()
+
+
 # Bosilgan joy yaqinida hayvon (hit metodi bor) bo'lsa uradi.
 # Qo'l/qilich/bolta/kirka — HAR QANDAY narsa bilan urish mumkin.
 func _attack_nearby_animal(cell: Vector2i) -> bool:
@@ -3184,21 +3210,14 @@ func _attack_nearby_animal(cell: Vector2i) -> bool:
 		_walk_player_to_cell(local_to_grid(best.position), true)
 		return true
 
-	# Zarar asbobga qarab: qilich ko'p, bolta/kirka o'rta, qo'l oz — lekin HAMMASI uradi
+	# Zarar: QO'L bilan 1 (slime 5 marta), har qanday ASBOB bilan 2 (slime 3 marta).
 	var eq := get_equipped()
-	var dmg := 1
-	match eq:
-		"Qilich", "Sehrli qilich":
-			dmg = 3
-		"Bolta", "Sehrli bolta", "Kirka", "Sehrli kirka", "Bolg'a":
-			dmg = 2
-		_:
-			dmg = 1
+	var dmg := 2 if is_tool(eq) else 1
 
 	if player.has_method("face_point"):
 		player.face_point(best.position)
 	if player.has_method("do_action"):
-		var swing := "sword_attack" if dmg >= 3 else "swing"
+		var swing := "sword_attack" if (eq == "Qilich" or eq == "Sehrli qilich") else "swing"
 		player.do_action(swing)
 	best.hit(dmg)
 	play_sfx("hit_stone", -6.0, 0.2)
@@ -3225,8 +3244,8 @@ func _update_animals() -> void:
 	if animals.size() >= MAX_ANIMALS:
 		return
 
-	# Bir tekshiruvda ko'pi bilan 2 ta paydo qilamiz (birdaniga to'lib ketmasin)
-	for i in range(2):
+	# Bir tekshiruvda faqat 1 ta paydo qilamiz (birdaniga to'lib ketmasin)
+	for i in range(1):
 		if animals.size() >= MAX_ANIMALS:
 			break
 		var spot = _find_spawn_spot()
@@ -4272,6 +4291,10 @@ func _process(delta: float) -> void:
 	if _spawn_timer >= SPAWN_INTERVAL:
 		_spawn_timer = 0.0
 		_update_animals()
+
+	# Jon olgandan keyingi qisqa himoyani kamaytiramiz
+	if _hurt_cooldown > 0.0:
+		_hurt_cooldown -= delta
 
 	# HUD ni yangilaymiz
 	if hud_node != null:

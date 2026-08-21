@@ -103,10 +103,10 @@ func _add_anim_from_files(frames: SpriteFrames, anim_name: String,
 
 # MUHIM: hayvon dunyoning bolasi -> position ALLAQACHON local. to_local KERAK EMAS.
 func _is_water_at(local_pos: Vector2) -> bool:
-	if world == null or not world.has_method("_ground_type"):
+	if world == null or not world.has_method("_is_occupied_cell"):
 		return false
 	var cell: Vector2i = world.local_to_grid(local_pos)
-	return world._ground_type(cell.x, cell.y) == "water"
+	return world._is_occupied_cell(cell)   # suv + daraxt + tosh + bino
 
 
 func _ensure_on_land() -> void:

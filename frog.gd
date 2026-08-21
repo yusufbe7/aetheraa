@@ -63,21 +63,23 @@ func _build_animations() -> void:
 	sprite_frames = frames
 
 
+# To'siqmi? Suv / daraxt / tosh / bino — hammasidan chetlab o'tadi.
 func _is_water_at(local_pos: Vector2) -> bool:
-	if world == null or not world.has_method("_ground_type"):
+	if world == null or not world.has_method("_is_occupied_cell"):
 		return false
 	var cell: Vector2i = world.local_to_grid(local_pos)
-	return world._ground_type(cell.x, cell.y) == "water"
+	return world._is_occupied_cell(cell)
 
 
 func _pick_new_target() -> void:
-	# Qurbaqa suvdan qochmaydi, lekin juda uzoq ketmaydi
 	for attempt in range(12):
 		var angle := randf() * TAU
 		var dist := randf_range(30.0, 100.0)
-		target = position + Vector2(cos(angle), sin(angle)) * dist
-		is_moving = true
-		return
+		var candidate := position + Vector2(cos(angle), sin(angle)) * dist
+		if not _is_water_at(candidate):
+			target = candidate
+			is_moving = true
+			return
 	is_moving = false
 
 
@@ -106,9 +108,14 @@ func _process(delta: float) -> void:
 			is_moving = false
 			_cooldown = randf_range(0.8, 2.5)
 		else:
-			position += to_t.normalized() * move_speed * delta
-			if absf(to_t.x) > 0.5:
-				flip_h = to_t.x < 0.0
+			var nxt := position + to_t.normalized() * move_speed * delta
+			if _is_water_at(nxt):
+				is_moving = false
+				_pick_new_target()
+			else:
+				position = nxt
+				if absf(to_t.x) > 0.5:
+					flip_h = to_t.x < 0.0
 	else:
 		_cooldown -= delta
 		if _cooldown <= 0.0:
