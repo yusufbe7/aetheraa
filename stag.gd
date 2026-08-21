@@ -15,11 +15,12 @@ var move_speed := 25.0
 var target := Vector2.ZERO
 var facing := "SE"
 var is_walking := false
-var world = null
+var world: AetheraWorld = null
 
 var hp := 4
 var dying := false
 var _flash := 0.0
+var _mat: ShaderMaterial = null
 
 var dir_vectors := {
 	"NE": Vector2(1, -1),
@@ -30,13 +31,26 @@ var dir_vectors := {
 
 
 func _ready() -> void:
-	world = get_parent()
+	world = get_parent() as AetheraWorld
 	texture_filter = CanvasItem.TEXTURE_FILTER_NEAREST
 	_build_animations()
+	# OQ border shader (hover)
+	var sh := load("res://assets/outline.gdshader")
+	if sh != null:
+		_mat = ShaderMaterial.new()
+		_mat.shader = sh
+		_mat.set_shader_parameter("hovered", false)
+		material = _mat
 	# Boshlanganda o'zi quruqlikda ekaniga ishonch hosil qilamiz
 	_ensure_on_land()
 	play("idle_SE")
 	_pick_new_target()
+
+
+# Sichqoncha sprite (tanasi) ustidami? — hover uchun ishonchli tekshiruv
+func _is_hovered() -> bool:
+	var ml := to_local(get_global_mouse_position())
+	return absf(ml.x) < 14.0 and absf(ml.y) < 20.0
 
 
 # Qo'l/qilich/bolta/har qanday narsa bilan urilganda main.gd chaqiradi
@@ -58,9 +72,11 @@ func hit(damage: int = 1) -> void:
 func _die() -> void:
 	dying = true
 	if world != null and world.has_method("add_item"):
-		world.add_item("Go'sht", "apple", 2)
+		world.add_item("Go'sht", "meat", 2)
+		world.add_item("Leather", "leather", 1)
 		if world.has_method("_toast"):
-			world._toast("Go'sht", "apple", 2)
+			world._toast("Go'sht", "meat", 2)
+			world._toast("Leather", "leather", 1)
 	if world != null and world.has_method("play_sfx"):
 		world.play_sfx("collect", -8.0, 0.1)
 	queue_free()
@@ -98,10 +114,10 @@ func _add_anim(frames: SpriteFrames, anim_name: String, path: String,
 # MUHIM: hayvon dunyoning bolasi, shuning uchun position ALLAQACHON local.
 # to_local KERAK EMAS. To'g'ridan-to'g'ri grid'ga o'giramiz.
 func _is_water_at(local_pos: Vector2) -> bool:
-	if world == null or not world.has_method("_ground_type"):
+	if world == null or not world.has_method("_is_occupied_cell"):
 		return false
 	var cell: Vector2i = world.local_to_grid(local_pos)
-	return world._ground_type(cell.x, cell.y) == "water"
+	return world._is_occupied_cell(cell)   # suv + daraxt + tosh + bino
 
 
 # Agar hayvon suvda paydo bo'lgan bo'lsa — yaqin quruqlikka ko'chiramiz
@@ -137,12 +153,12 @@ func _process(delta: float) -> void:
 		var cell := world.local_to_grid(position)
 		offset.y = -world._lift_px(cell.x, cell.y)
 
-	# Hover -> yorqinlashadi; urilganda oq flash
+	# Hover -> oq border (shader); urilganda oq flash (modulate)
+	if _mat != null:
+		_mat.set_shader_parameter("hovered", _is_hovered())
 	if _flash > 0.0:
 		_flash -= delta
 		modulate = Color(2.4, 2.4, 2.4)
-	elif world != null and world.hovered_cell == world.local_to_grid(position):
-		modulate = Color(1.5, 1.5, 1.5)
 	else:
 		modulate = Color(1, 1, 1)
 

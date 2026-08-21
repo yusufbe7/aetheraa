@@ -16,22 +16,28 @@ const IDLE_FRAMES := 7
 const HURT_FRAMES := 11
 const DEATH_FRAMES := 14
 
-var world = null
+var world: AetheraWorld = null
 
 var move_speed := 28.0
 var target := Vector2.ZERO
 var is_moving := false
 var _cooldown := 0.0
 
-var hp := 3
+var hp := 5                  # qo'l bilan 5 marta, asbob bilan 3 marta
 var dying := false
 var hurting := false
+
+# ---- HUJUM (personajni ta'qib qiladi va uradi) ----
+const AGGRO_DIST := 120.0    # shu masofada personajni ko'rsa quvadi
+const ATTACK_DIST := 20.0    # shu masofada zarba beradi
+const ATTACK_CD := 1.0       # zarbalar orasidagi vaqt
+var _attack_t := 0.0
 
 var _mat: ShaderMaterial = null
 
 
 func _ready() -> void:
-	world = get_parent()
+	world = get_parent() as AetheraWorld
 	centered = true
 	texture_filter = CanvasItem.TEXTURE_FILTER_NEAREST   # piksel aniq
 	_build_animations()
@@ -47,8 +53,8 @@ func _ready() -> void:
 	play("idle")
 	_ensure_on_land()
 	_pick_new_target()
-	# Har slime biroz boshqacha o'lchamda
-	var s := randf_range(0.8, 1.15)
+	# ~32x32 o'lchamda ko'rinsin (kadr 96x32, tana kichik) -> kichraytiramiz
+	var s := randf_range(0.62, 0.72)
 	scale = Vector2(s, s)
 
 
@@ -78,11 +84,12 @@ func _add_anim(frames: SpriteFrames, anim_name: String, path: String,
 		frames.add_frame(anim_name, atlas)
 
 
+# To'siqmi? Suv / daraxt / tosh / bino — hammasidan chetlab o'tadi.
 func _is_water_at(local_pos: Vector2) -> bool:
-	if world == null or not world.has_method("_ground_type"):
+	if world == null or not world.has_method("_is_occupied_cell"):
 		return false
 	var cell: Vector2i = world.local_to_grid(local_pos)
-	return world._ground_type(cell.x, cell.y) == "water"
+	return world._is_occupied_cell(cell)
 
 
 func _ensure_on_land() -> void:
@@ -115,16 +122,38 @@ func _process(delta: float) -> void:
 		var c := world.local_to_grid(position)
 		offset.y = -world._lift_px(c.x, c.y) / maxf(scale.y, 0.01)
 
-	# Hover -> oq border
-	if _mat != null and world != null:
-		var cell := world.local_to_grid(position)
-		var hov: bool = world.hovered_cell == cell
-		_mat.set_shader_parameter("hovered", hov)
+	# Hover -> oq border (sichqoncha sprite ustidami?)
+	if _mat != null:
+		_mat.set_shader_parameter("hovered", _is_hovered())
 
 	if dying:
 		return
 
-	# Yurish (suvdan qochib)
+	if _attack_t > 0.0:
+		_attack_t -= delta
+
+	# ---- HUJUM: personaj yaqin bo'lsa quvadi va uradi ----
+	if not hurting and world != null and world.player != null:
+		var to_p := world.player.position - position
+		var pdist := to_p.length()
+		if pdist < AGGRO_DIST:
+			if pdist <= ATTACK_DIST:
+				# Yetdi — zarba beradi (cooldown bilan)
+				if _attack_t <= 0.0:
+					_attack_t = ATTACK_CD
+					if world.has_method("hurt_player"):
+						world.hurt_player(1)
+			else:
+				# Personajga qarab yaqinlashadi (to'siqdan chetlab)
+				var step := to_p.normalized() * move_speed * delta
+				var nxt := position + step
+				if not _is_water_at(nxt):
+					position = nxt
+					if absf(to_p.x) > 0.5:
+						flip_h = to_p.x < 0.0
+			return
+
+	# ---- Oddiy kezish (personaj uzoqda) ----
 	if is_moving and not hurting:
 		var to_t := target - position
 		var d := to_t.length()
@@ -146,6 +175,12 @@ func _process(delta: float) -> void:
 			_cooldown -= delta
 			if _cooldown <= 0.0:
 				_pick_new_target()
+
+
+# Sichqoncha sprite (tanasi) ustidami? — hover uchun ishonchli tekshiruv
+func _is_hovered() -> bool:
+	var ml := to_local(get_global_mouse_position())
+	return absf(ml.x) < 30.0 and absf(ml.y) < 16.0
 
 
 # Qo'l/qilich/bolta/har qanday narsa bilan urilganda main.gd chaqiradi
@@ -181,9 +216,9 @@ func _die() -> void:
 	await _wait_anim("death")
 	# Jelatin beradi
 	if world != null and world.has_method("add_item"):
-		world.add_item("Jelatin", "sapphire", 1)
+		world.add_item("Jelatin", "jelly", 1)
 		if world.has_method("_toast"):
-			world._toast("Jelatin", "sapphire", 1)
+			world._toast("Jelatin", "jelly", 1)
 	if world != null and world.has_method("play_sfx"):
 		world.play_sfx("collect", -10.0, 0.1)
 	queue_free()

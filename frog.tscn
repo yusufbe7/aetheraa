@@ -1,0 +1,6 @@
+[gd_scene format=3 uid="uid://dfrogscene8mob"]
+
+[ext_resource type="Script" uid="uid://cfrog7green4mob" path="res://frog.gd" id="1_frog"]
+
+[node name="frog" type="AnimatedSprite2D" unique_id=1770225951]
+script = ExtResource("1_frog")
