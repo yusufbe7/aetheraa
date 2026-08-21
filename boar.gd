@@ -88,6 +88,11 @@ func _pick_new_target() -> void:
 
 
 func _process(delta: float) -> void:
+	# Terrasa balandligi — hayvon yer ustida tursin (suzib yurmasin)
+	if world != null and world.has_method("_lift_px"):
+		var cell := world.local_to_grid(position)
+		offset.y = -world._lift_px(cell.x, cell.y)
+
 	if not is_walking:
 		return
 	var to_target := target - position
