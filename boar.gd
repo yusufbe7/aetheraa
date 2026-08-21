@@ -15,6 +15,10 @@ var facing := "SE"
 var is_walking := false
 var world = null
 
+var hp := 5
+var dying := false
+var _flash := 0.0
+
 var dir_vectors := {
 	"NE": Vector2(1, -1),
 	"NW": Vector2(-1, -1),
@@ -25,10 +29,37 @@ var dir_vectors := {
 
 func _ready() -> void:
 	world = get_parent()
+	texture_filter = CanvasItem.TEXTURE_FILTER_NEAREST
 	_build_animations()
 	_ensure_on_land()
 	play("idle_SE")
 	_pick_new_target()
+
+
+# Qo'l/qilich/bolta/har qanday narsa bilan urilganda main.gd chaqiradi
+func hit(damage: int = 1) -> void:
+	if dying:
+		return
+	hp -= damage
+	_flash = 0.15
+	if world != null and world.player != null:
+		var away := (position - world.player.position).normalized()
+		target = position + away * randf_range(120.0, 200.0)
+		is_walking = true
+	move_speed = 60.0
+	if hp <= 0:
+		_die()
+
+
+func _die() -> void:
+	dying = true
+	if world != null and world.has_method("add_item"):
+		world.add_item("Go'sht", "apple", 3)
+		if world.has_method("_toast"):
+			world._toast("Go'sht", "apple", 3)
+	if world != null and world.has_method("play_sfx"):
+		world.play_sfx("collect", -8.0, 0.1)
+	queue_free()
 
 
 func _build_animations() -> void:
@@ -92,6 +123,15 @@ func _process(delta: float) -> void:
 	if world != null and world.has_method("_lift_px"):
 		var cell := world.local_to_grid(position)
 		offset.y = -world._lift_px(cell.x, cell.y)
+
+	# Hover -> yorqinlashadi; urilganda oq flash
+	if _flash > 0.0:
+		_flash -= delta
+		modulate = Color(2.4, 2.4, 2.4)
+	elif world != null and world.hovered_cell == world.local_to_grid(position):
+		modulate = Color(1.5, 1.5, 1.5)
+	else:
+		modulate = Color(1, 1, 1)
 
 	if not is_walking:
 		return
