@@ -102,10 +102,12 @@ func _add_anim_from_files(frames: SpriteFrames, anim_name: String,
 
 
 # MUHIM: hayvon dunyoning bolasi -> position ALLAQACHON local. to_local KERAK EMAS.
+const FEET_OFF := 12.0
 func _is_water_at(local_pos: Vector2) -> bool:
 	if world == null or not world.has_method("_is_occupied_cell"):
 		return false
-	var cell: Vector2i = world.local_to_grid(local_pos)
+	# OYOQ nuqtasini tekshiramiz (markaz emas) — oyoq suv/daraxtda qolmaydi
+	var cell: Vector2i = world.local_to_grid(local_pos + Vector2(0.0, FEET_OFF))
 	return world._is_occupied_cell(cell)   # suv + daraxt + tosh + bino
 
 

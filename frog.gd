@@ -64,10 +64,12 @@ func _build_animations() -> void:
 
 
 # To'siqmi? Suv / daraxt / tosh / bino — hammasidan chetlab o'tadi.
+# OYOQ nuqtasini tekshiramiz (sprite markazi emas).
+const FEET_OFF := 8.0
 func _is_water_at(local_pos: Vector2) -> bool:
 	if world == null or not world.has_method("_is_occupied_cell"):
 		return false
-	var cell: Vector2i = world.local_to_grid(local_pos)
+	var cell: Vector2i = world.local_to_grid(local_pos + Vector2(0.0, FEET_OFF))
 	return world._is_occupied_cell(cell)
 
 
