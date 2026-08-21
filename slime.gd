@@ -15,6 +15,7 @@ const FRAME_H := 32
 const IDLE_FRAMES := 7
 const HURT_FRAMES := 11
 const DEATH_FRAMES := 14
+const JUMP_FRAMES := 22    # Start-up(9)+Up(1)+Fall(5)+Down(1)+Land(6)
 
 var world: AetheraWorld = null
 
@@ -30,8 +31,9 @@ var hurting := false
 # ---- HUJUM (personajni ta'qib qiladi va uradi) ----
 const AGGRO_DIST := 120.0    # shu masofada personajni ko'rsa quvadi
 const ATTACK_DIST := 20.0    # shu masofada zarba beradi
-const ATTACK_CD := 1.0       # zarbalar orasidagi vaqt
+const ATTACK_CD := 1.2       # zarbalar orasidagi vaqt
 var _attack_t := 0.0
+var jumping := false         # hujum (jump) animatsiyasi o'ynayapti
 
 var _mat: ShaderMaterial = null
 
@@ -65,6 +67,7 @@ func _build_animations() -> void:
 	_add_anim(frames, "idle",  DIR + "slime_blue_idle.png",  IDLE_FRAMES, 8.0, true)
 	_add_anim(frames, "hurt",  DIR + "slime_blue_hurt.png",  HURT_FRAMES, 16.0, false)
 	_add_anim(frames, "death", DIR + "slime_blue_death.png", DEATH_FRAMES, 14.0, false)
+	_add_anim(frames, "jump",  DIR + "slime_blue_jump.png",  JUMP_FRAMES, 22.0, false)
 	sprite_frames = frames
 
 
@@ -85,10 +88,12 @@ func _add_anim(frames: SpriteFrames, anim_name: String, path: String,
 
 
 # To'siqmi? Suv / daraxt / tosh / bino — hammasidan chetlab o'tadi.
+# OYOQ nuqtasini tekshiramiz (sprite markazi emas) — aks holda oyoq suvda qoladi.
+const FEET_OFF := 6.0
 func _is_water_at(local_pos: Vector2) -> bool:
 	if world == null or not world.has_method("_is_occupied_cell"):
 		return false
-	var cell: Vector2i = world.local_to_grid(local_pos)
+	var cell: Vector2i = world.local_to_grid(local_pos + Vector2(0.0, FEET_OFF))
 	return world._is_occupied_cell(cell)
 
 
@@ -129,6 +134,10 @@ func _process(delta: float) -> void:
 	if dying:
 		return
 
+	# Hujum (jump) o'ynayotganda joyida turadi
+	if jumping:
+		return
+
 	if _attack_t > 0.0:
 		_attack_t -= delta
 
@@ -138,11 +147,10 @@ func _process(delta: float) -> void:
 		var pdist := to_p.length()
 		if pdist < AGGRO_DIST:
 			if pdist <= ATTACK_DIST:
-				# Yetdi — zarba beradi (cooldown bilan)
+				# Yetdi — sakrab hujum qiladi (cooldown bilan)
 				if _attack_t <= 0.0:
 					_attack_t = ATTACK_CD
-					if world.has_method("hurt_player"):
-						world.hurt_player(1)
+					_do_attack()
 			else:
 				# Personajga qarab yaqinlashadi (to'siqdan chetlab)
 				var step := to_p.normalized() * move_speed * delta
@@ -175,6 +183,22 @@ func _process(delta: float) -> void:
 			_cooldown -= delta
 			if _cooldown <= 0.0:
 				_pick_new_target()
+
+
+# Sakrab hujum: jump animatsiyasi, oxirida (yerga tushganda) zarba tegadi
+func _do_attack() -> void:
+	jumping = true
+	play("jump")
+	await _wait_anim("jump")
+	jumping = false
+	if dying:
+		return
+	# Yerga tushdi — hali yaqinda bo'lsa jonini kamaytiradi
+	if world != null and world.player != null \
+			and world.player.position.distance_to(position) <= ATTACK_DIST + 8.0:
+		if world.has_method("hurt_player"):
+			world.hurt_player(1)
+	play("idle")
 
 
 # Sichqoncha sprite (tanasi) ustidami? — hover uchun ishonchli tekshiruv
