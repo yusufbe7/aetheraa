@@ -493,6 +493,20 @@ var chests := {}                # Vector2i -> Array (24 ta katak)
 var chest_open := false
 var open_chest_cell := Vector2i(999999, 999999)
 
+# ---- KILN (Ko'ra) — VAQT bilan pishiriladigan qurilma ----
+var kiln_open := false
+var kiln_selected := 0
+var open_kiln_cell := Vector2i(999999, 999999)
+var kiln_jobs := {}   # Vector2i -> {recipe, elapsed, duration, ready}
+var kiln_collect_rect := Rect2()  # HUD tomonidan yangilanadi
+const KILN_MAX_READY := 5      # bir vaqtda ko'pi bilan nechta tayyor tursin
+var KILN_RECIPES := [
+	{"name": "Shisha", "icon": "sapphire", "stone": 3, "wood": 0, "time": 5.0},
+	{"name": "G'isht", "icon": "silver_ore", "stone": 5, "wood": 0, "time": 6.0},
+	{"name": "Ko'mir", "icon": "log", "stone": 0, "wood": 4, "time": 4.0},
+	{"name": "Oltin quyma", "icon": "gold_ore", "stone": 0, "wood": 0, "gold": 3, "time": 8.0},
+]
+
 # ---- FURNACE / WINDMILL ----
 # Ular ham workbench kabi dunyoga qo'yiladigan obyektlar.
 const FURNACE_PATH := "res://assets/objects/furnace.png"
@@ -571,6 +585,9 @@ var _autosave_t := 0.0
 # ---- EKRAN OGOHLANTIRISHI (chap yuqori burchak) ----
 var hint_text := ""
 var hint_timer := 0.0
+# ---- TOAST (yig'ish bildirishnomalari, o'ng chetda pastdan-yuqoriga) ----
+var toasts := []   # [{name, icon, count, timer}], yangisi 0-indeksda
+const TOAST_LIFE := 2.2
 
 # ---- TUTORIAL (o'rgatuvchi kartalar — chap yuqori burchak) ----
 const TUTORIAL_SAVE := "user://aethera_tutorial.done"
@@ -893,7 +910,7 @@ func _ready() -> void:
 	height_noise.seed = WORLD_SEED
 	height_noise.noise_type = FastNoiseLite.TYPE_SIMPLEX_SMOOTH
 	# Pastroq frequency = KATTAROQ, kengroq suv havzalari (mayda ko'lmaklar emas)
-	height_noise.frequency = 0.020
+	height_noise.frequency = 0.038
 
 	# ---- BIOM TIZIMI: HARORAT + NAMLIK (Minecraft uslubi) ----
 	# Juda past frequency = JUDA KATTA, uzluksiz biomlar.
@@ -1664,7 +1681,7 @@ func _stable_index(col: int, row: int, salt: int, size: int) -> int:
 # -------------------------------------------------------------------------
 # Suv qancha ko'p bo'lsin: kattaroq son = KO'PROQ suv
 #   -0.52 (juda kam)  ...  -0.30 (juda ko'p)
-const WATER_LEVEL := -0.40
+const WATER_LEVEL := -0.50
 
 # Cho'l qancha ko'p bo'lsin: KICHIKROQ son = KO'PROQ cho'l
 #   0.28 (kam)  ...  0.05 (juda ko'p)
@@ -2041,6 +2058,9 @@ func _nearby_interactable() -> Array:
 	elif chests.has(cell):
 		h = CHEST_MAX_HEIGHT
 		reach = CHEST_REACH
+	elif kilns.has(cell):
+		h = KILN_MAX_HEIGHT
+		reach = BUILDING_REACH
 	else:
 		return []
 
@@ -2327,8 +2347,12 @@ func _harvest_crop(cell: Vector2i) -> void:
 	crops.erase(cell)
 	if net_active:
 		net_ground.rpc("harvest", cell)
-	add_item("Bug'doy", "item_wheat", randi_range(2, 3))
-	add_item("Urug'", "item_seed", randi_range(1, 2))
+	var wheat_amt := randi_range(2, 3)
+	var seed_amt := randi_range(1, 2)
+	add_item("Bug'doy", "item_wheat", wheat_amt)
+	add_item("Urug'", "item_seed", seed_amt)
+	_toast("Bug'doy", "item_wheat", wheat_amt)
+	_toast("Urug'", "item_seed", seed_amt)
 	if player.has_method("face_point"):
 		player.face_point(grid_to_local(cell.x, cell.y))
 	play_sfx("collect", -6.0, 0.1)
@@ -2955,10 +2979,14 @@ func _draw_player() -> void:
 	# Sakrash balandligi (SPACE bosilganda ko'tariladi)
 	var draw_pos := player.position - Vector2(0.0, jump_z)
 
+	# Suzayaptimi? (suv ustida) — bo'lsa quyosh soyasi o'rniga to'lqin chiziladi
+	var _pcell := local_to_grid(player.position)
+	var in_water: bool = _ground_type(_pcell.x, _pcell.y) == "water"
+
 	# Quyosh soyasi — kunduzi, daraxtlar bilan bir xil yo'nalishda.
-	# Sakraganda soya joyida qoladi (personaj havoda).
+	# Sakraganda soya joyida qoladi (personaj havoda). Suvda soya chizilmaydi.
 	var day: float = _daylight()
-	if day > 0.02:
+	if day > 0.02 and not in_water:
 		var shear: float = _sun_shear()
 		# Sakraganda soya kichrayadi (uzoqlashgandek)
 		var jshrink: float = clampf(1.0 - jump_z * 0.012, 0.55, 1.0)
@@ -2982,6 +3010,22 @@ func _draw_player() -> void:
 		draw_set_transform(draw_pos, 0.0, Vector2(PLAYER_DRAW_SCALE, PLAYER_DRAW_SCALE))
 		draw_texture(tex, -Vector2(tex.get_width() / 2.0, tex.get_height() / 2.0))
 		draw_set_transform(Vector2.ZERO, 0.0, Vector2.ONE)
+
+	# ---- SUZISH: pastki qism suv ostida (tanani ko'kimtir bosadi) + to'lqin ----
+	if in_water:
+		var body_w: float = w * 0.62
+		var submerge_h: float = h * 0.40   # tananing pastki 40% i suv ostida
+		var wtop: float = draw_pos.y - submerge_h * 0.55
+		var wrect := Rect2(draw_pos.x - body_w / 2.0, wtop, body_w, submerge_h)
+		draw_rect(wrect, Color(0.35, 0.62, 0.78, 0.55))
+		# Yuzadagi to'lqin chizig'i (sekin pulslab kengayadi)
+		var ripple: float = 0.5 + 0.5 * sin(_beacon_t * 3.0)
+		var rw: float = body_w * (0.9 + 0.3 * ripple)
+		draw_arc(Vector2(draw_pos.x, wtop), rw / 2.0, 0.0, PI, 10,
+			Color(0.85, 0.95, 1.0, 0.35 * (1.0 - ripple * 0.5)), 2.0)
+		# Kichik pufakchalar
+		draw_circle(Vector2(draw_pos.x - body_w * 0.25, wtop + 4.0), 1.6, Color(0.9, 0.97, 1.0, 0.5))
+		draw_circle(Vector2(draw_pos.x + body_w * 0.22, wtop + 7.0), 1.2, Color(0.9, 0.97, 1.0, 0.4))
 
 
 # LAN: boshqa o'yinchilarni chizadi
@@ -3235,6 +3279,31 @@ func can_harvest(kind: String) -> bool:
 
 
 # Chap yuqori burchakdagi kichkina ogohlantirish
+# Item olinganda o'ng chetda kichik bildirishnoma chiqaradi.
+# Bir xil nom qisqa vaqt ichida qayta kelsa -> sonni oshirib, taymerni yangilaydi.
+func _toast(item_name: String, icon: String, amount: int = 1) -> void:
+	if toasts.size() > 0:
+		var top: Dictionary = toasts[0]
+		if str(top.get("name", "")) == item_name and float(top.get("timer", 0.0)) > 0.0:
+			top["count"] = int(top["count"]) + amount
+			top["timer"] = TOAST_LIFE
+			return
+	toasts.push_front({"name": item_name, "icon": icon, "count": amount, "timer": TOAST_LIFE})
+	if toasts.size() > 5:
+		toasts.resize(5)
+
+
+func _update_toasts(delta: float) -> void:
+	if toasts.is_empty():
+		return
+	var alive := []
+	for t in toasts:
+		t["timer"] = float(t["timer"]) - delta
+		if float(t["timer"]) > -0.5:   # so'nish animatsiyasi uchun ozgina qo'shimcha vaqt
+			alive.append(t)
+	toasts = alive
+
+
 func show_hint(text: String, seconds: float = 1.8) -> void:
 	if text == "":
 		return
@@ -3463,6 +3532,89 @@ func _refresh_counts() -> void:
 
 
 # Retsept bo'yicha narsa yasaydi (resurs yetsa)
+# KILN: retseptni tanlab pishirishni boshlaydi (resurs bo'lsa).
+# Vaqt o'tib pishgach "ready" oshadi, keyin "collect" bilan olinadi.
+func _kiln_start(idx: int) -> void:
+	if open_kiln_cell == Vector2i(999999, 999999):
+		return
+	if idx < 0 or idx >= KILN_RECIPES.size():
+		return
+	kiln_selected = idx
+	var r: Dictionary = KILN_RECIPES[idx]
+	var job = kiln_jobs.get(open_kiln_cell, null)
+	# Boshqa retsept pishayotgan bo'lsa, avval uni tugatish kerak
+	if job != null and int(job.get("recipe", -1)) != idx and float(job.get("elapsed", 0.0)) > 0.0:
+		show_hint("Avval joriy pishirishni yakunlang")
+		return
+	var need_w := int(r.get("wood", 0))
+	var need_s := int(r.get("stone", 0))
+	var need_g := int(r.get("gold", 0))
+	if count_item("Yog'och") < need_w or count_item("Tosh") < need_s or count_item("Oltin") < need_g:
+		play_sfx("fail", -8.0, 0.0)
+		return
+	var ready: int = int(job.get("ready", 0)) if job != null else 0
+	if ready >= KILN_MAX_READY:
+		show_hint("Kiln to'la — avval yig'ib oling")
+		return
+	if need_w > 0: remove_item("Yog'och", need_w)
+	if need_s > 0: remove_item("Tosh", need_s)
+	if need_g > 0: remove_item("Oltin", need_g)
+	kiln_jobs[open_kiln_cell] = {"recipe": idx, "elapsed": 0.0,
+		"duration": float(r.get("time", 5.0)), "ready": ready}
+	play_sfx("craft", -8.0, 0.05)
+	queue_redraw()
+
+
+# Tayyor bo'lgan mahsulotni inventarga yig'ib oladi
+func _kiln_collect() -> void:
+	if open_kiln_cell == Vector2i(999999, 999999):
+		return
+	var job = kiln_jobs.get(open_kiln_cell, null)
+	if job == null:
+		return
+	var ready: int = int(job.get("ready", 0))
+	if ready <= 0:
+		return
+	var r: Dictionary = KILN_RECIPES[int(job["recipe"])]
+	if add_item(str(r["name"]), str(r["icon"]), ready):
+		crafted[str(r["name"])] = int(crafted.get(str(r["name"]), 0)) + ready
+		_toast(str(r["name"]), str(r["icon"]), ready)
+		job["ready"] = 0
+		play_sfx("collect", -6.0, 0.1)
+		queue_redraw()
+	else:
+		show_hint("Inventar to'la")
+
+
+# Barcha kilnlarni har kadr yangilaydi — panel yopiq bo'lsa ham pishayveradi
+func _update_kilns(delta: float) -> void:
+	if kiln_jobs.is_empty():
+		return
+	for cell in kiln_jobs.keys():
+		var job: Dictionary = kiln_jobs[cell]
+		var ready: int = int(job.get("ready", 0))
+		if ready >= KILN_MAX_READY:
+			continue
+		var dur: float = float(job.get("duration", 5.0))
+		if dur <= 0.0:
+			continue
+		job["elapsed"] = float(job.get("elapsed", 0.0)) + delta
+		if float(job["elapsed"]) >= dur:
+			job["elapsed"] = 0.0
+			job["ready"] = ready + 1
+			# Avtomatik davom etadi — agar resurs yetsa, keyingisini o'zi boshlaydi
+			var ridx: int = int(job["recipe"])
+			if ridx >= 0 and ridx < KILN_RECIPES.size() and int(job["ready"]) < KILN_MAX_READY:
+				var r: Dictionary = KILN_RECIPES[ridx]
+				var nw := int(r.get("wood", 0)); var ns := int(r.get("stone", 0)); var ng := int(r.get("gold", 0))
+				if count_item("Yog'och") >= nw and count_item("Tosh") >= ns and count_item("Oltin") >= ng:
+					if nw > 0: remove_item("Yog'och", nw)
+					if ns > 0: remove_item("Tosh", ns)
+					if ng > 0: remove_item("Oltin", ng)
+				# resurs yetmasa ham "ready" saqlanadi, elapsed 0 da to'xtab qoladi
+		queue_redraw()
+
+
 func _try_craft(idx: int) -> void:
 	if idx < 0 or idx >= RECIPES.size():
 		return
@@ -4037,6 +4189,8 @@ func _process(delta: float) -> void:
 
 	# O'tin fizikasi (sakrash, tushish, personajga uchish)
 	_update_wood(delta)
+	_update_kilns(delta)
+	_update_toasts(delta)
 
 	# ============================================================
 	# DARAxt / TOSH CHOPISH
@@ -4276,6 +4430,16 @@ func _unhandled_input(event: InputEvent) -> void:
 				queue_redraw()
 				return
 
+		# KILN paneli: collect tugmasi yoki retsept qatori
+		if kiln_open and event.button_index == MOUSE_BUTTON_LEFT and event.pressed:
+			if kiln_collect_rect.has_point(event.position):
+				_kiln_collect()
+				return
+			var kidx := _kiln_recipe_at_screen(event.position)
+			if kidx >= 0:
+				_kiln_start(kidx)
+			return
+
 		if event.button_index == MOUSE_BUTTON_RIGHT and event.pressed:
 			var place_cell := local_to_grid(to_local(get_global_mouse_position()))
 			_place_building(place_cell)
@@ -4306,7 +4470,7 @@ func _unhandled_input(event: InputEvent) -> void:
 		return
 
 	if event is InputEventMouseMotion and is_panning:
-		if inv_open or craft_open or workbench_open or magic_open or anvil_open or chest_open:
+		if inv_open or craft_open or workbench_open or magic_open or anvil_open or chest_open or kiln_open:
 			return
 		# Sichqoncha bilan kamera SURILMAYDI (faqat zoom g'ildirak bilan).
 		# Biroz sudralsa -> "drag" deb belgilaymiz, chop/qo'yish adashmasin.
@@ -4338,7 +4502,7 @@ func _unhandled_input(event: InputEvent) -> void:
 					settings_open = false
 				queue_redraw()
 				return
-			if not (inv_open or craft_open or workbench_open or magic_open or anvil_open or chest_open):
+			if not (inv_open or craft_open or workbench_open or magic_open or anvil_open or chest_open or kiln_open):
 				settings_open = true
 				settings_panel.reset()
 				queue_redraw()
@@ -4359,6 +4523,8 @@ func _unhandled_input(event: InputEvent) -> void:
 				workbench_open = false
 			elif anvil_open:
 				anvil_open = false
+			elif kiln_open:
+				kiln_open = false
 			elif craft_open:
 				craft_open = false
 			elif magic_open:
@@ -4387,6 +4553,7 @@ func _unhandled_input(event: InputEvent) -> void:
 				magic_open = false
 				anvil_open = false
 				chest_open = false
+				kiln_open = false
 				return
 
 			var cell: Vector2i = target[0]
@@ -4396,10 +4563,12 @@ func _unhandled_input(event: InputEvent) -> void:
 			var was_av := anvil_open
 			var was_mt := magic_open
 			var was_ch := chest_open and open_chest_cell == cell
+			var was_kl := kiln_open and open_kiln_cell == cell
 			workbench_open = false
 			anvil_open = false
 			magic_open = false
 			chest_open = false
+			kiln_open = false
 
 			if workbenches.has(cell):
 				workbench_open = not was_wb
@@ -4411,6 +4580,10 @@ func _unhandled_input(event: InputEvent) -> void:
 				if not was_ch:
 					chest_open = true
 					open_chest_cell = cell
+			elif kilns.has(cell):
+				if not was_kl:
+					kiln_open = true
+					open_kiln_cell = cell
 			return
 
 		# Q — qurilmani CHAPGA / O'NGGA qaratish (oyna)
@@ -4429,10 +4602,11 @@ func _unhandled_input(event: InputEvent) -> void:
 			magic_open = false
 			anvil_open = false
 			chest_open = false
+			kiln_open = false
 			inv_open = not inv_open
 			return
 
-		if inv_open or craft_open or workbench_open or magic_open or anvil_open or chest_open:
+		if inv_open or craft_open or workbench_open or magic_open or anvil_open or chest_open or kiln_open:
 			if event.keycode == KEY_ESCAPE:
 				if drag_item != null:
 					_cancel_drag()
@@ -4442,6 +4616,7 @@ func _unhandled_input(event: InputEvent) -> void:
 				magic_open = false
 				anvil_open = false
 				chest_open = false
+				kiln_open = false
 			elif event.keycode >= KEY_1 and event.keycode <= KEY_8:
 				var idx = event.keycode - KEY_1
 				if magic_open:
@@ -4617,6 +4792,23 @@ func chest_slot_at(screen_pos: Vector2) -> Array:
 # Universal kraft panelidagi bosishni topadi.
 # MUHIM: bu yerdagi hisob-kitob _draw_craft_ui bilan AYNAN bir xil
 # bo'lishi shart, aks holda bosish qatorlarga to'g'ri kelmaydi.
+# Sichqoncha KILN panelidagi qaysi retsept qatorida turibdi (-1 = hech qaysi).
+# Koordinata hisobi _draw_kiln_panel bilan AYNAN bir xil bo'lishi shart.
+func _kiln_recipe_at_screen(pos: Vector2) -> int:
+	var vp := get_viewport_rect().size
+	var cx := vp.x / 2.0
+	var y := 30.0 + 46.0 + 64.0 + 22.0 + 26.0
+	var panel_w := 260.0
+	var row_h := 32.0
+	var gap := 4.0
+	var x := cx - panel_w / 2.0
+	for i in range(KILN_RECIPES.size()):
+		var ry := y + float(i) * (row_h + gap)
+		if Rect2(x, ry, panel_w, row_h).has_point(pos):
+			return i
+	return -1
+
+
 func _craft_recipe_at_screen(screen_pos: Vector2) -> int:
 	var vp := get_viewport_rect().size
 	var recipes: Array
@@ -4673,11 +4865,9 @@ func _is_building_cell(cell: Vector2i) -> bool:
 # Daraxt/tosh endi to'siq EMAS — o'yinchi ularning orqasiga o'tadi,
 # obyekt esa shaffof bo'lib, personaj ko'rinib turadi.
 func _is_blocking_cell(cell: Vector2i) -> bool:
-	# Ko'prik ustidan yuriladi — suv bo'lsa ham to'smaydi.
+	# Ko'prik ustidan yuriladi. Suv endi TO'SIQ EMAS — personaj suzadi.
 	if bridges.has(cell):
 		return false
-	if _ground_type(cell.x, cell.y) == "water":
-		return true
 	return _is_building_cell(cell)
 
 
@@ -5317,6 +5507,7 @@ func _update_wood(delta: float) -> void:
 				var d_name: String = str(DROP_ITEMS[item_kind][0])
 				var d_icon: String = str(DROP_ITEMS[item_kind][1])
 				add_item(d_name, d_icon, 1)
+				_toast(d_name, d_icon, 1)
 				if item_kind == "stone":
 					stone_count = count_item("Tosh")
 				elif item_kind == "wood":
@@ -5363,6 +5554,7 @@ class HudDraw extends Control:
 		_draw_health_pill(vp)
 		_draw_fps(vp)
 		_draw_net_badge(vp)
+		_draw_toasts(vp)
 		_draw_equipped(start_x + total_w / 2.0, bottom_y - 22.0)
 		_draw_hotbar(start_x, bottom_y, total_w)
 		_draw_resource_chips(vp, bottom_y)
@@ -5386,6 +5578,8 @@ class HudDraw extends Control:
 			_draw_craft_ui(vp, "MAGIC TABLE", world.MAGIC_RECIPES, world.magic_selected, 2)
 		if world.chest_open:
 			_draw_chest_panel(vp)
+		if world.kiln_open:
+			_draw_kiln_panel(vp)
 
 		# ---- TUTORIAL kartasi (eng ustida) ----
 		_draw_tutorial(vp)
@@ -5484,6 +5678,29 @@ class HudDraw extends Control:
 
 	# O'ng-yuqori burchakda FPS (past bo'lsa qizil, baland bo'lsa yashil)
 	# LAN holati (FPS ostida)
+	# ---- TOAST — yig'ilgan narsalar (o'ng chetda, stacklanadi) ----
+	func _draw_toasts(vp: Vector2) -> void:
+		if world.toasts.is_empty():
+			return
+		var font: Font = ThemeDB.fallback_font
+		var y := 66.0
+		for t in world.toasts:
+			var timer: float = float(t["timer"])
+			# Kirish/chiqish fade (oxirgi 0.5s da so'nadi)
+			var fade_out: float = clampf(timer / 0.5, 0.0, 1.0)
+			var txt := str(t["name"]) + "  " + str(t["count"])
+			var fs := 13
+			var tw := font.get_string_size(txt, HORIZONTAL_ALIGNMENT_LEFT, -1, fs).x
+			var w: float = tw + 46.0
+			var h := 28.0
+			var x := vp.x - w - 14.0
+			_draw_rounded_panel(Rect2(x, y, w, h),
+				Color(0.08, 0.09, 0.07, 0.85 * fade_out), Color(0.30, 0.34, 0.22, 0.75 * fade_out), 8.0, 1.0)
+			_icon(str(t["icon"]), Rect2(x + 4.0, y + 3.0, 22.0, 22.0), 2.0)
+			draw_string(font, Vector2(x + 30.0, y + 19.0), txt,
+				HORIZONTAL_ALIGNMENT_LEFT, -1, fs, Color(1, 1, 1, fade_out))
+			y += h + 6.0
+
 	func _draw_net_badge(vp: Vector2) -> void:
 		if not world.net_active:
 			return
@@ -5865,9 +6082,11 @@ class HudDraw extends Control:
 			var need_w := int(r.get("wood", 0))
 			var need_s := int(r.get("stone", 0))
 			var need_c := int(r.get("copper", 0))
+			var need_g := int(r.get("gold", 0))
 			var ok: bool = world.count_item("Yog'och") >= need_w \
 				and world.count_item("Tosh") >= need_s \
-				and world.count_item("Mis") >= need_c
+				and world.count_item("Mis") >= need_c \
+				and world.count_item("Oltin") >= need_g
 
 			# Qator foni
 			var fill := Color(0.055, 0.05, 0.045, 0.95)
@@ -5887,16 +6106,17 @@ class HudDraw extends Control:
 			# Mahsulot ikonkasi
 			_icon(str(r["icon"]), Rect2(rx + 4.0, ry + 3.0, 28.0, 28.0), 3.0)
 
-			# Nomi (tarjima bilan)
-			var nm := str(r["name"])
-			draw_string(font, Vector2(rx + 38.0, ry + 21.0), nm,
-				HORIZONTAL_ALIGNMENT_LEFT, -1, 12,
-				Color(0.95, 0.96, 0.92) if ok else Color(0.55, 0.55, 0.58))
+			# Nomi — FAQAT sichqoncha ustiga borganda yoki tanlangan bo'lsa ko'rinadi
+			if hov or i == selected:
+				var nm := str(r["name"])
+				draw_string(font, Vector2(rx + 38.0, ry + 21.0), nm,
+					HORIZONTAL_ALIGNMENT_LEFT, -1, 12,
+					Color(0.95, 0.96, 0.92) if ok else Color(0.55, 0.55, 0.58))
 
 			# O'ngda kerakli materiallar (ikonka + son)
 			var mx := rx + col_w - 6.0
-			var mats := [[need_c, "copper_ore", "Mis"], [need_s, "silver_ore", "Tosh"],
-				[need_w, "log", "Yog'och"]]
+			var mats := [[need_c, "copper_ore", "Mis"], [need_g, "gold_ore", "Oltin"],
+				[need_s, "silver_ore", "Tosh"], [need_w, "log", "Yog'och"]]
 			for m in mats:
 				var cnt := int(m[0])
 				if cnt <= 0:
@@ -5922,6 +6142,121 @@ class HudDraw extends Control:
 		draw_string(font, Vector2(x + (panel_w - hw) / 2.0, start_y + float(rows) * (row_h + gap) + 16.0),
 			hint, HORIZONTAL_ALIGNMENT_LEFT, -1, 11, Color(0.62, 0.68, 0.60))
 
+	# =================================================================
+	#  KILN paneli (video dizayni): chiqish slot + collect + retseptlar
+	# =================================================================
+	func _draw_kiln_panel(vp: Vector2) -> void:
+		if not world.kiln_open:
+			return
+		var font: Font = ThemeDB.fallback_font
+		var mp := get_global_mouse_position()
+		var recipes: Array = world.KILN_RECIPES
+		var job = world.kiln_jobs.get(world.open_kiln_cell, null)
+
+		var panel_w := 260.0
+		var cx := vp.x / 2.0
+		var y := 30.0
+
+		# --- Sarlavha ---
+		var title := "KILN"
+		var tw := font.get_string_size(title, HORIZONTAL_ALIGNMENT_LEFT, -1, 15).x
+		var tpw: float = maxf(150.0, tw + 44.0)
+		_draw_rounded_panel(Rect2(cx - tpw / 2.0, y, tpw, 34.0),
+			Color(0.05, 0.05, 0.06, 0.94), Color(0.22, 0.24, 0.22, 0.95), 8.0, 1.0)
+		draw_string(font, Vector2(cx - tw / 2.0, y + 22.0), title,
+			HORIZONTAL_ALIGNMENT_LEFT, -1, 15, Color(0.94, 0.95, 0.90))
+		y += 46.0
+
+		# --- Chiqish sloti ---
+		var slot_size := 64.0
+		var slot := Rect2(cx - slot_size / 2.0, y, slot_size, slot_size)
+		_draw_rounded_panel(slot, Color(0.05, 0.06, 0.05, 0.92), Color(0.24, 0.26, 0.22, 0.9), 8.0, 1.0)
+		var ready: int = int(job.get("ready", 0)) if job != null else 0
+		var ridx: int = int(job.get("recipe", -1)) if job != null else -1
+		if job != null and ridx >= 0 and ridx < recipes.size():
+			var r: Dictionary = recipes[ridx]
+			_icon(str(r["icon"]), slot.grow(-8.0), 2.0)
+			# Progress (agar hali pishayotgan bo'lsa)
+			var dur: float = float(job.get("duration", 5.0))
+			var el: float = float(job.get("elapsed", 0.0))
+			if ready < world.KILN_MAX_READY and el > 0.01:
+				var prog: float = clampf(el / dur, 0.0, 1.0)
+				draw_rect(Rect2(slot.position.x + 4.0, slot.position.y + slot_size - 8.0,
+					(slot_size - 8.0) * prog, 4.0), Color(0.55, 0.85, 0.40, 0.9))
+			# Son (ready/MAX)
+			var cnt_txt := str(ready) + "/" + str(world.KILN_MAX_READY)
+			var ctw := font.get_string_size(cnt_txt, HORIZONTAL_ALIGNMENT_LEFT, -1, 12).x
+			draw_string(font, Vector2(cx - ctw / 2.0, slot.position.y + slot_size + 16.0),
+				cnt_txt, HORIZONTAL_ALIGNMENT_LEFT, -1, 12, Color(0.92, 0.94, 0.90))
+			# X (bekor qilish belgisi — faqat vizual, hozircha bosilmaydi)
+			draw_string(font, Vector2(slot.position.x + slot_size - 10.0, slot.position.y - 2.0), "x",
+				HORIZONTAL_ALIGNMENT_LEFT, -1, 11, Color(0.85, 0.35, 0.30))
+		y += slot_size + 22.0
+
+		# --- Collect tugmasi ---
+		var cbtn_w := 74.0
+		var cbtn := Rect2(cx - cbtn_w / 2.0, y - 12.0, cbtn_w, 22.0)
+		var chov: bool = cbtn.has_point(mp)
+		var can_collect: bool = ready > 0
+		_draw_rounded_panel(cbtn,
+			Color(0.10, 0.16, 0.10, 0.9) if can_collect else Color(0.07, 0.07, 0.07, 0.7),
+			Color(0.55, 0.75, 0.45, 0.9) if (chov and can_collect) else Color(0.22, 0.24, 0.20, 0.8), 6.0, 1.0)
+		var cl := "collect"
+		var clw := font.get_string_size(cl, HORIZONTAL_ALIGNMENT_LEFT, -1, 11).x
+		draw_string(font, Vector2(cx - clw / 2.0, y + 3.0), cl,
+			HORIZONTAL_ALIGNMENT_LEFT, -1, 11,
+			Color(0.92, 0.95, 0.90) if can_collect else Color(0.5, 0.52, 0.48))
+		world.kiln_collect_rect = cbtn
+		y += 26.0
+
+		# --- Retsept qatorlari (bitta ustun, workbench uslubida) ---
+		var row_h := 32.0
+		var gap := 4.0
+		var x := cx - panel_w / 2.0
+		for i in range(recipes.size()):
+			var r2: Dictionary = recipes[i]
+			var ry := y + float(i) * (row_h + gap)
+			var rect := Rect2(x, ry, panel_w, row_h)
+			var hov: bool = rect.has_point(mp)
+
+			var nw := int(r2.get("wood", 0))
+			var ns := int(r2.get("stone", 0))
+			var ng := int(r2.get("gold", 0))
+			var ok: bool = world.count_item("Yog'och") >= nw and world.count_item("Tosh") >= ns \
+				and world.count_item("Oltin") >= ng
+
+			var fill := Color(0.055, 0.05, 0.045, 0.95)
+			var border := Color(0.16, 0.15, 0.12, 0.95)
+			if i == world.kiln_selected:
+				border = Color(0.85, 0.55, 0.30, 0.95)
+				fill = Color(0.10, 0.07, 0.04, 0.96)
+			elif hov:
+				border = Color(0.55, 0.50, 0.40, 0.9)
+				fill = fill.lightened(0.06)
+			_draw_rounded_panel(rect, fill, border, 6.0, 1.0)
+
+			_icon(str(r2["icon"]), Rect2(x + 4.0, ry + 2.0, 28.0, 28.0), 3.0)
+			if hov or i == world.kiln_selected:
+				draw_string(font, Vector2(x + 38.0, ry + 20.0), str(r2["name"]),
+					HORIZONTAL_ALIGNMENT_LEFT, -1, 12,
+					Color(0.95, 0.96, 0.92) if ok else Color(0.55, 0.55, 0.58))
+
+			var mx := x + panel_w - 6.0
+			for m in [[ng, "gold_ore", "Oltin"], [ns, "silver_ore", "Tosh"], [nw, "log", "Yog'och"]]:
+				var cnt := int(m[0])
+				if cnt <= 0:
+					continue
+				var txt := str(cnt)
+				var txw := font.get_string_size(txt, HORIZONTAL_ALIGNMENT_LEFT, -1, 10).x
+				var have: bool = world.count_item(str(m[2])) >= cnt
+				mx -= txw
+				draw_string(font, Vector2(mx, ry + 21.0), txt,
+					HORIZONTAL_ALIGNMENT_LEFT, -1, 10,
+					Color(0.95, 0.96, 0.92) if have else Color(0.95, 0.32, 0.28))
+				mx -= 18.0
+				_icon(str(m[1]), Rect2(mx, ry + 7.0, 16.0, 16.0), 1.0)
+				mx -= 5.0
+
 	# Chapdagi INFO paneli: nomi, tavsifi, ingredientlari
 	func _draw_info_panel(vp: Vector2, item_name: String) -> void:
 		var font: Font = ThemeDB.fallback_font
@@ -5937,7 +6272,7 @@ class HudDraw extends Control:
 			Color(0.045, 0.05, 0.045, 0.95), Color(0.24, 0.26, 0.22, 0.95), 9.0, 1.0)
 
 		# Ikonka + nomi
-		var icn = world._icon_for_item(item_name)
+		var icn: String = world._icon_for_item(item_name)
 		if icn != "":
 			_icon(icn, Rect2(x + 12.0, y + 12.0, 30.0, 30.0), 3.0)
 		var nm := item_name
@@ -5954,7 +6289,7 @@ class HudDraw extends Control:
 		var iy: float = y + 92.0 + dh
 		draw_string(font, Vector2(x + 12.0, iy), "Ingredients:",
 			HORIZONTAL_ALIGNMENT_LEFT, -1, 12, Color(0.75, 0.80, 0.72))
-		var rec = world._recipe_for_item(item_name)
+		var rec: Dictionary = world._recipe_for_item(item_name)
 		var ix := x + 12.0
 		if rec.size() > 0:
 			for m in [[int(rec.get("wood", 0)), "log"], [int(rec.get("stone", 0)), "silver_ore"],
