@@ -1738,6 +1738,16 @@ func _stable_index(col: int, row: int, salt: int, size: int) -> int:
 #   -0.52 (juda kam)  ...  -0.30 (juda ko'p)
 const WATER_LEVEL := -0.42
 
+# ---- SUV CHUQURLIGI + SHAFFOFLIK (spec 9-12) ----
+# WATER_DEPTH_ENABLED = false qilsangiz suv avvalgidek to'liq (shaffofsiz) bo'ladi.
+const WATER_DEPTH_ENABLED := true
+const WATER_DEPTH_RANGE := 0.34        # WATER_LEVEL dan qancha pastda "chuqur" hisoblanadi
+const SHALLOW_WATER_ALPHA := 0.58      # qirg'oq — ko'proq shaffof (tag ko'rinadi)
+const DEEP_WATER_ALPHA := 0.86         # chuqur — kamroq shaffof
+# Chuqurlikka qarab rang (piksel teksturani BO'YAYDI, silliq shader emas)
+const WATER_SHALLOW_MOD := Color(0.92, 0.99, 1.00)   # sayoz — och moviy
+const WATER_DEEP_MOD := Color(0.52, 0.70, 0.95)      # chuqur — to'q moviy
+
 # Cho'l qancha ko'p bo'lsin: KICHIKROQ son = KO'PROQ cho'l
 #   0.28 (kam)  ...  0.05 (juda ko'p)
 const SAND_LEVEL := 0.18   # (eski — endi ishlatilmaydi)
@@ -4121,8 +4131,24 @@ func _draw() -> void:
 					_tile_cache[gcell] = gtex
 				if gtex != null:
 					var gc := grid_to_local(col, row)
-					draw_texture(gtex, gc - Vector2(float(gtex.get_width()) * 0.5,
-						float(gtex.get_height()) * 0.5))
+					var half := Vector2(float(gtex.get_width()) * 0.5,
+						float(gtex.get_height()) * 0.5)
+					if gr == "water" and WATER_DEPTH_ENABLED:
+						# Suv ostidagi tag (qum) — qisman ko'rinib turadi
+						var seabed := _get_tex(SAND_TILE)
+						if seabed != null:
+							draw_texture(seabed, gc - Vector2(
+								float(seabed.get_width()) * 0.5,
+								float(seabed.get_height()) * 0.5),
+								Color(0.60, 0.58, 0.50))
+						# Chuqurlik: WATER_LEVEL dan qancha past bo'lsa shuncha to'q/qalin
+						var h := height_noise.get_noise_2d(col, row)
+						var depth01 := clampf((WATER_LEVEL - h) / WATER_DEPTH_RANGE, 0.0, 1.0)
+						var wcol := WATER_SHALLOW_MOD.lerp(WATER_DEEP_MOD, depth01)
+						wcol.a = lerpf(SHALLOW_WATER_ALPHA, DEEP_WATER_ALPHA, depth01)
+						draw_texture(gtex, gc - half, wcol)
+					else:
+						draw_texture(gtex, gc - half)
 				if not use_blocks:
 					_draw_cliff_cached(col, row)
 			if paths.has(gcell):
