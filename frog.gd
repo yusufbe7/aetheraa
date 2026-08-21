@@ -13,7 +13,7 @@ const FRAME := 32
 const IDLE_ROW := 0
 const IDLE_FRAMES := 8
 
-var world = null
+var world: AetheraWorld = null
 
 var move_speed := 30.0
 var target := Vector2.ZERO
@@ -23,13 +23,21 @@ var _cooldown := 0.0
 var hp := 2
 var dying := false
 var _flash := 0.0
+var _mat: ShaderMaterial = null
 
 
 func _ready() -> void:
-	world = get_parent()
+	world = get_parent() as AetheraWorld
 	centered = true
 	texture_filter = CanvasItem.TEXTURE_FILTER_NEAREST
 	_build_animations()
+	# OQ border shader (hover)
+	var sh := load("res://assets/outline.gdshader")
+	if sh != null:
+		_mat = ShaderMaterial.new()
+		_mat.shader = sh
+		_mat.set_shader_parameter("hovered", false)
+		material = _mat
 	play("idle")
 	_pick_new_target()
 	var s := randf_range(0.7, 1.0)
@@ -79,12 +87,12 @@ func _process(delta: float) -> void:
 		var c := world.local_to_grid(position)
 		offset.y = -world._lift_px(c.x, c.y) / maxf(scale.y, 0.01)
 
-	# Hover -> yorqinlashadi; urilganda oq flash
+	# Hover -> oq border (shader); urilganda oq flash (modulate)
+	if _mat != null:
+		_mat.set_shader_parameter("hovered", _is_hovered())
 	if _flash > 0.0:
 		_flash -= delta
 		modulate = Color(2.4, 2.4, 2.4)
-	elif world != null and world.hovered_cell == world.local_to_grid(position):
-		modulate = Color(1.5, 1.5, 1.5)
 	else:
 		modulate = Color(1, 1, 1)
 
@@ -105,6 +113,12 @@ func _process(delta: float) -> void:
 		_cooldown -= delta
 		if _cooldown <= 0.0:
 			_pick_new_target()
+
+
+# Sichqoncha sprite (tanasi) ustidami? — hover uchun ishonchli tekshiruv
+func _is_hovered() -> bool:
+	var ml := to_local(get_global_mouse_position())
+	return absf(ml.x) < 13.0 and absf(ml.y) < 13.0
 
 
 # Qo'l/qilich/bolta/har qanday narsa bilan urilganda main.gd chaqiradi

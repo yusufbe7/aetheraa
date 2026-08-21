@@ -16,7 +16,7 @@ const IDLE_FRAMES := 7
 const HURT_FRAMES := 11
 const DEATH_FRAMES := 14
 
-var world = null
+var world: AetheraWorld = null
 
 var move_speed := 28.0
 var target := Vector2.ZERO
@@ -31,7 +31,7 @@ var _mat: ShaderMaterial = null
 
 
 func _ready() -> void:
-	world = get_parent()
+	world = get_parent() as AetheraWorld
 	centered = true
 	texture_filter = CanvasItem.TEXTURE_FILTER_NEAREST   # piksel aniq
 	_build_animations()
@@ -115,11 +115,9 @@ func _process(delta: float) -> void:
 		var c := world.local_to_grid(position)
 		offset.y = -world._lift_px(c.x, c.y) / maxf(scale.y, 0.01)
 
-	# Hover -> oq border
-	if _mat != null and world != null:
-		var cell := world.local_to_grid(position)
-		var hov: bool = world.hovered_cell == cell
-		_mat.set_shader_parameter("hovered", hov)
+	# Hover -> oq border (sichqoncha sprite ustidami?)
+	if _mat != null:
+		_mat.set_shader_parameter("hovered", _is_hovered())
 
 	if dying:
 		return
@@ -146,6 +144,12 @@ func _process(delta: float) -> void:
 			_cooldown -= delta
 			if _cooldown <= 0.0:
 				_pick_new_target()
+
+
+# Sichqoncha sprite (tanasi) ustidami? — hover uchun ishonchli tekshiruv
+func _is_hovered() -> bool:
+	var ml := to_local(get_global_mouse_position())
+	return absf(ml.x) < 30.0 and absf(ml.y) < 16.0
 
 
 # Qo'l/qilich/bolta/har qanday narsa bilan urilganda main.gd chaqiradi
