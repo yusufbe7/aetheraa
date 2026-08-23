@@ -1773,9 +1773,9 @@ const WATER_DEPTH_ENABLED := true
 const WATER_DEPTH_RANGE := 0.34        # WATER_LEVEL dan qancha pastda "chuqur" hisoblanadi
 const SHALLOW_WATER_ALPHA := 0.58      # qirg'oq — ko'proq shaffof (tag ko'rinadi)
 const DEEP_WATER_ALPHA := 0.86         # chuqur — kamroq shaffof
-# Chuqurlikka qarab rang (piksel teksturani BO'YAYDI, silliq shader emas)
-const WATER_SHALLOW_MOD := Color(0.92, 0.99, 1.00)   # sayoz — och moviy
-const WATER_DEEP_MOD := Color(0.52, 0.70, 0.95)      # chuqur — to'q moviy
+# Suv RANGI (yaxlit romb bilan chiziladi — grid yo'q). Chuqurlikka qarab.
+const WATER_SHALLOW_MOD := Color(0.42, 0.75, 0.82)   # sayoz — och teal
+const WATER_DEEP_MOD := Color(0.13, 0.40, 0.64)      # chuqur — to'q moviy
 # Jonli to'lqin (yumshoq piksel shimmer — kuchli emas)
 const WATER_WAVE_SPEED := 1.8    # to'lqin tezligi
 const WATER_WAVE_AMP := 0.05     # yorug'lik tebranishi (kichik = yumshoq)
@@ -4246,7 +4246,13 @@ func _draw() -> void:
 						wcol.g = clampf(wcol.g + ripple, 0.0, 1.0)
 						wcol.b = clampf(wcol.b + ripple, 0.0, 1.0)
 						wcol.a = lerpf(SHALLOW_WATER_ALPHA, DEEP_WATER_ALPHA, depth01)
-						draw_texture(gtex, gc - half, wcol)
+						var e := 1.0
+						draw_colored_polygon(PackedVector2Array([
+							gc + Vector2(0.0, -TILE_H / 2.0 - e),
+							gc + Vector2(TILE_W / 2.0 + e, 0.0),
+							gc + Vector2(0.0, TILE_H / 2.0 + e),
+							gc + Vector2(-TILE_W / 2.0 - e, 0.0),
+						]), wcol)
 					elif USE_HEIGHT_TILES and gr == "grass" and not tilled_cells.has(gcell):
 						# GRASS biom — terrasa balandlik bloki (height_0/1/2)
 						_draw_height_tile(col, row, _elevation(col, row))
