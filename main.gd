@@ -4256,10 +4256,10 @@ func _draw() -> void:
 							# Animatsion suv kadri (borderli romb). Katak fazasi -> to'lqin.
 							var fi: int = (int(_anim_timer * WATER_ANIM_FPS) + col + row) % water_frames.size()
 							var wtex: Texture2D = water_frames[fi]
-							var s := WATER_TILE_SCALE
+							var ws := WATER_TILE_SCALE
 							var dk := lerpf(1.0, 0.72, depth01)   # chuqur -> to'qroq
 							draw_texture_rect(wtex,
-								Rect2(gc - Vector2(128.0, 128.0) * s, Vector2(256.0, 256.0) * s),
+								Rect2(gc - Vector2(128.0, 128.0) * ws, Vector2(256.0, 256.0) * ws),
 								false, Color(dk, dk, dk, walpha))
 						else:
 							# Zaxira: yaxlit romb
