@@ -1776,6 +1776,9 @@ const DEEP_WATER_ALPHA := 0.86         # chuqur — kamroq shaffof
 # Chuqurlikka qarab rang (piksel teksturani BO'YAYDI, silliq shader emas)
 const WATER_SHALLOW_MOD := Color(0.92, 0.99, 1.00)   # sayoz — och moviy
 const WATER_DEEP_MOD := Color(0.52, 0.70, 0.95)      # chuqur — to'q moviy
+# Jonli to'lqin (yumshoq piksel shimmer — kuchli emas)
+const WATER_WAVE_SPEED := 1.8    # to'lqin tezligi
+const WATER_WAVE_AMP := 0.05     # yorug'lik tebranishi (kichik = yumshoq)
 
 # Cho'l qancha ko'p bo'lsin: KICHIKROQ son = KO'PROQ cho'l
 #   0.28 (kam)  ...  0.05 (juda ko'p)
@@ -4232,11 +4235,16 @@ func _draw() -> void:
 							draw_texture(seabed, gc - Vector2(
 								float(seabed.get_width()) * 0.5,
 								float(seabed.get_height()) * 0.5),
-								Color(0.60, 0.58, 0.50))
+								Color(0.56, 0.60, 0.56))
 						# Chuqurlik: WATER_LEVEL dan qancha past bo'lsa shuncha to'q/qalin
 						var h := height_noise.get_noise_2d(col, row)
 						var depth01 := clampf((WATER_LEVEL - h) / WATER_DEPTH_RANGE, 0.0, 1.0)
 						var wcol := WATER_SHALLOW_MOD.lerp(WATER_DEEP_MOD, depth01)
+						# Jonli to'lqin shimmer (vaqt + katak fazasi -> diagonal to'lqin)
+						var ripple := sin(_anim_timer * WATER_WAVE_SPEED + float(col + row) * 0.7) * WATER_WAVE_AMP
+						wcol.r = clampf(wcol.r + ripple, 0.0, 1.0)
+						wcol.g = clampf(wcol.g + ripple, 0.0, 1.0)
+						wcol.b = clampf(wcol.b + ripple, 0.0, 1.0)
 						wcol.a = lerpf(SHALLOW_WATER_ALPHA, DEEP_WATER_ALPHA, depth01)
 						draw_texture(gtex, gc - half, wcol)
 					elif USE_HEIGHT_TILES and gr == "grass" and not tilled_cells.has(gcell):
