@@ -1030,6 +1030,13 @@ func _ready() -> void:
 		if ht != null:
 			height_tex[hn] = ht
 
+	# ---- ANIMATSION SUV KADRLARI (water_00..07) ----
+	water_frames.clear()
+	for wi in range(8):
+		var wt = load(WATER_DIR + "water_0" + str(wi) + ".png")
+		if wt != null:
+			water_frames.append(wt)
+
 	wheat_textures.clear()
 	for wi in range(4):
 		var wt = _load_cropped_texture(WHEAT_DIR + "wheat_" + str(wi) + ".png")
@@ -1779,6 +1786,11 @@ const WATER_DEEP_MOD := Color(0.13, 0.40, 0.64)      # chuqur — to'q moviy
 # Jonli to'lqin (yumshoq piksel shimmer — kuchli emas)
 const WATER_WAVE_SPEED := 1.8    # to'lqin tezligi
 const WATER_WAVE_AMP := 0.05     # yorug'lik tebranishi (kichik = yumshoq)
+# Animatsion suv kadrlari (water_00..07, 256x256, borderli romb)
+const WATER_DIR := "res://assets/water/"
+const WATER_TILE_SCALE := 0.15   # 256px romb -> o'yin taylига (romb ~35px)
+const WATER_ANIM_FPS := 6.0      # suv animatsiyasi tezligi
+var water_frames := []
 
 # Cho'l qancha ko'p bo'lsin: KICHIKROQ son = KO'PROQ cho'l
 #   0.28 (kam)  ...  0.05 (juda ko'p)
@@ -4239,20 +4251,27 @@ func _draw() -> void:
 						# Chuqurlik: WATER_LEVEL dan qancha past bo'lsa shuncha to'q/qalin
 						var h := height_noise.get_noise_2d(col, row)
 						var depth01 := clampf((WATER_LEVEL - h) / WATER_DEPTH_RANGE, 0.0, 1.0)
-						var wcol := WATER_SHALLOW_MOD.lerp(WATER_DEEP_MOD, depth01)
-						# Jonli to'lqin shimmer (vaqt + katak fazasi -> diagonal to'lqin)
-						var ripple := sin(_anim_timer * WATER_WAVE_SPEED + float(col + row) * 0.7) * WATER_WAVE_AMP
-						wcol.r = clampf(wcol.r + ripple, 0.0, 1.0)
-						wcol.g = clampf(wcol.g + ripple, 0.0, 1.0)
-						wcol.b = clampf(wcol.b + ripple, 0.0, 1.0)
-						wcol.a = lerpf(SHALLOW_WATER_ALPHA, DEEP_WATER_ALPHA, depth01)
-						var e := 1.0
-						draw_colored_polygon(PackedVector2Array([
-							gc + Vector2(0.0, -TILE_H / 2.0 - e),
-							gc + Vector2(TILE_W / 2.0 + e, 0.0),
-							gc + Vector2(0.0, TILE_H / 2.0 + e),
-							gc + Vector2(-TILE_W / 2.0 - e, 0.0),
-						]), wcol)
+						var walpha := lerpf(SHALLOW_WATER_ALPHA, DEEP_WATER_ALPHA, depth01)
+						if not water_frames.is_empty():
+							# Animatsion suv kadri (borderli romb). Katak fazasi -> to'lqin.
+							var fi: int = (int(_anim_timer * WATER_ANIM_FPS) + col + row) % water_frames.size()
+							var wtex: Texture2D = water_frames[fi]
+							var s := WATER_TILE_SCALE
+							var dk := lerpf(1.0, 0.72, depth01)   # chuqur -> to'qroq
+							draw_texture_rect(wtex,
+								Rect2(gc - Vector2(128.0, 128.0) * s, Vector2(256.0, 256.0) * s),
+								false, Color(dk, dk, dk, walpha))
+						else:
+							# Zaxira: yaxlit romb
+							var wcol := WATER_SHALLOW_MOD.lerp(WATER_DEEP_MOD, depth01)
+							wcol.a = walpha
+							var e := 1.0
+							draw_colored_polygon(PackedVector2Array([
+								gc + Vector2(0.0, -TILE_H / 2.0 - e),
+								gc + Vector2(TILE_W / 2.0 + e, 0.0),
+								gc + Vector2(0.0, TILE_H / 2.0 + e),
+								gc + Vector2(-TILE_W / 2.0 - e, 0.0),
+							]), wcol)
 					elif USE_HEIGHT_TILES and gr == "grass" and not tilled_cells.has(gcell):
 						# GRASS biom — terrasa balandlik bloki (height_0/1/2)
 						_draw_height_tile(col, row, _elevation(col, row))
