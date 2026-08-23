@@ -1778,8 +1778,8 @@ const WATER_LEVEL := -0.42
 # WATER_DEPTH_ENABLED = false qilsangiz suv avvalgidek to'liq (shaffofsiz) bo'ladi.
 const WATER_DEPTH_ENABLED := true
 const WATER_DEPTH_RANGE := 0.34        # WATER_LEVEL dan qancha pastda "chuqur" hisoblanadi
-const SHALLOW_WATER_ALPHA := 0.58      # qirg'oq — ko'proq shaffof (tag ko'rinadi)
-const DEEP_WATER_ALPHA := 0.86         # chuqur — kamroq shaffof
+const SHALLOW_WATER_ALPHA := 0.80      # qirg'oq (kamroq shaffof — kulrang bo'lmasin)
+const DEEP_WATER_ALPHA := 0.96         # chuqur — deyarli to'liq ko'k
 # Suv RANGI (yaxlit romb bilan chiziladi — grid yo'q). Chuqurlikka qarab.
 const WATER_SHALLOW_MOD := Color(0.42, 0.75, 0.82)   # sayoz — och teal
 const WATER_DEEP_MOD := Color(0.13, 0.40, 0.64)      # chuqur — to'q moviy
@@ -4247,7 +4247,7 @@ func _draw() -> void:
 							draw_texture(seabed, gc - Vector2(
 								float(seabed.get_width()) * 0.5,
 								float(seabed.get_height()) * 0.5),
-								Color(0.56, 0.60, 0.56))
+								Color(0.16, 0.40, 0.52))
 						# Chuqurlik: WATER_LEVEL dan qancha past bo'lsa shuncha to'q/qalin
 						var h := height_noise.get_noise_2d(col, row)
 						var depth01 := clampf((WATER_LEVEL - h) / WATER_DEPTH_RANGE, 0.0, 1.0)
