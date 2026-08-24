@@ -28,9 +28,6 @@ const LAND_TILE := "tile_040"
 # Foydalanuvchi bergan qum blokidan 32x32 ISO tile.
 const SAND_TILE := "tile_sand"
 
-# Blender modeli keyingi 3D versiya uchun saqlanadi:
-const BLENDER_LAND_SCENE := "res://assets/blender/bloc.blend"
-
 # =========================================================================
 #  SUV CHETLARI (auto-tiling)
 #  Har suv katagining 4 qo'shnisi tekshiriladi. Qaysi tomonda QURUQLIK
@@ -439,8 +436,9 @@ var plaza_texture: Texture2D = null
 var plazas := {}
 
 # ---- KRISTALL USTUN (BEACON — boshda paydo bo'ladi, kechqurun nur sochadi) ----
-# Blender'dan chiqqan kadrlar (assets/objects/piller/anim) tools/make_pillar_sheet.py
-# bilan sprite-sheet'ga aylantirilgan: 8x4 = 32 kadr, har biri 74x116.
+# Tayyor sprite-sheet: 8x4 = 32 kadr, har biri 74x116.
+# (Blender manba kadrlari o'yin hajmini kichraytirish uchun repodan olib tashlandi;
+#  agar qayta yasash kerak bo'lsa, tools/make_pillar_sheet.py dan foydalaniladi.)
 # Suzish (tepa blokning tepaga-pastga qalqishi) va kristall pulsi RASMNING
 # O'ZIDA bor — shuning uchun bu yerda qo'lda bob qilinmaydi.
 const BEACON_SHEET_PATH := "res://assets/objects/pillar_anim.png"
