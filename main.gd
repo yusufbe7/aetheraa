@@ -1776,7 +1776,7 @@ const WATER_LEVEL := -0.42
 
 # ---- SUV CHUQURLIGI + SHAFFOFLIK (spec 9-12) ----
 # WATER_DEPTH_ENABLED = false qilsangiz suv avvalgidek to'liq (shaffofsiz) bo'ladi.
-const WATER_DEPTH_ENABLED := true
+const WATER_DEPTH_ENABLED := false  # eski tile suv (tile_104..113) — animatsion frame o'chirildi
 const WATER_DEPTH_RANGE := 0.34        # WATER_LEVEL dan qancha pastda "chuqur" hisoblanadi
 const SHALLOW_WATER_ALPHA := 0.80      # qirg'oq (kamroq shaffof — kulrang bo'lmasin)
 const DEEP_WATER_ALPHA := 0.96         # chuqur — deyarli to'liq ko'k
