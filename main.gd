@@ -189,6 +189,14 @@ const WORLD_SEED := 1337
 const PORTAL_ENABLED := true
 const OTHERWORLD_OFFSET := 500000   # boshqa olam butunlay boshqa relyef
 const OTHERWORLD_TINT := Color(0.55, 0.45, 0.82)  # binafsha-qorong'i tus
+# Portal sprite-sheet: 6 kadr, har biri 112x128 (Isometric_Portal.png)
+const PORTAL_SHEET_PATH := "res://assets/objects/portal.png"
+const PORTAL_FRAME_W := 112
+const PORTAL_FRAME_H := 128
+const PORTAL_FRAMES := 6
+const PORTAL_FPS := 8.0
+const PORTAL_MAX_HEIGHT := 62.0     # o'yindagi ko'rinadigan balandlik
+var portal_sheet: Texture2D = null
 var current_realm := 0              # 0 = asosiy dunyo, 1 = boshqa olam
 var portal_cell = null              # Vector2i — joriy olamdagi portal katagi
 var overworld_return_pos := Vector2.ZERO  # asosiy dunyoga qaytish joyi
@@ -1348,7 +1356,10 @@ func _ready() -> void:
 	if player != null:
 		_tut_spawn_pos = player.position
 
-	# PORTAL — sinov uchun personaj oldida (chapdan) paydo bo'ladi
+	# PORTAL — sprite-sheet yuklaymiz + sinov uchun personaj oldida (chapdan) paydo bo'ladi
+	portal_sheet = load(PORTAL_SHEET_PATH) as Texture2D
+	if portal_sheet == null:
+		push_warning("Portal rasmi topilmadi: " + PORTAL_SHEET_PATH)
 	if PORTAL_ENABLED and player != null and portal_cell == null:
 		var _pc := local_to_grid(player.position)
 		portal_cell = _find_free_land_cell(_pc + Vector2i(-2, 2), 10)
@@ -5478,38 +5489,44 @@ func _enter_portal() -> void:
 	queue_redraw()
 
 
-# Portalni chizadi — binafsha, pulsli, aylanuvchi zarrali eshik.
+# Portalni chizadi — animatsion sprite (6 kadr). Rasm bo'lmasa zaxira
+# usul (binafsha pulsli ellips) chiziladi, o'yin baribir ishlaydi.
 func _draw_portal(cell: Vector2i) -> void:
-	var c := grid_to_local(cell.x, cell.y)
-	c.y -= _lift_px(cell.x, cell.y)
-	var cx := c.x
-	var cy := c.y - 20.0          # markaz yer ustida
+	var center := grid_to_local(cell.x, cell.y)
+	center.y -= _lift_px(cell.x, cell.y)
+
+	if portal_sheet != null:
+		var frame: int = int(_portal_t * PORTAL_FPS) % PORTAL_FRAMES
+		var src := Rect2(frame * PORTAL_FRAME_W, 0, PORTAL_FRAME_W, PORTAL_FRAME_H)
+		var sc: float = PORTAL_MAX_HEIGHT / float(PORTAL_FRAME_H)
+		var dw: float = float(PORTAL_FRAME_W) * sc
+		var dh: float = float(PORTAL_FRAME_H) * sc
+		# Pastki qismi katakning yer nuqtasiga tegib tursin
+		var dst_pos := center - Vector2(dw / 2.0, dh - TILE_H / 2.0)
+		draw_texture_rect_region(portal_sheet, Rect2(dst_pos, Vector2(dw, dh)), src)
+		return
+
+	# ---- ZAXIRA (rasm topilmasa) ----
+	var cx := center.x
+	var cy := center.y - 20.0
 	var rx := 14.0
 	var ry := 21.0
 	var pulse := 0.5 + 0.5 * sin(_portal_t * 3.0)
-
-	# Tashqi yumshoq nur (kattaroq, xira ellips)
 	var glow_pts := PackedVector2Array()
 	for i in range(24):
 		var ga := TAU * float(i) / 24.0
 		glow_pts.append(Vector2(cx + cos(ga) * (rx + 6.0), cy + sin(ga) * (ry + 6.0)))
 	draw_colored_polygon(glow_pts, Color(0.45, 0.2, 0.9, 0.18 + pulse * 0.12))
-
-	# Ichki qorong'i binafsha yuza
 	var fill := PackedVector2Array()
 	for i in range(24):
 		var fa := TAU * float(i) / 24.0
 		fill.append(Vector2(cx + cos(fa) * rx, cy + sin(fa) * ry))
 	draw_colored_polygon(fill, Color(0.10, 0.02, 0.20, 0.92))
-
-	# Aylanuvchi yorug' zarralar
 	for k in range(10):
 		var pa := _portal_t * 2.0 + TAU * float(k) / 10.0
 		var rr := 0.45 + 0.45 * sin(_portal_t * 3.0 + float(k))
 		var pp := Vector2(cx + cos(pa) * rx * rr, cy + sin(pa) * ry * rr)
 		draw_circle(pp, 1.6, Color(0.85, 0.65, 1.0, 0.9))
-
-	# Yorqin halqa (ellips kontur)
 	var ring := PackedVector2Array()
 	for i in range(25):
 		var ra := TAU * float(i) / 24.0
