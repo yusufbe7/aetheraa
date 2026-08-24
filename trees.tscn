@@ -1,5 +1,0 @@
-[gd_scene format=3 uid="uid://cg88ppg8k5fmi"]
-
-[ext_resource type="PackedScene" uid="uid://c77m3ykjt34dc" path="res://assets/blender/trees/trees.glb" id="1_el68p"]
-
-[node name="trees" unique_id=1871567195 instance=ExtResource("1_el68p")]
