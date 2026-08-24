@@ -180,6 +180,30 @@ var elev_noise := FastNoiseLite.new()    # YER BALANDLIGI (terrasa darajalari)
 const WORLD_SEED := 1337
 
 # =========================================================================
+#  PORTAL / BOSHQA OLAM  (sinov versiyasi)
+#  Portal o'yin boshida personaj OLDIDA paydo bo'ladi (hozircha topish oson).
+#  Ustiga borsang boshqa olamga (boshqa seed + binafsha tus) olib o'tadi;
+#  u yerdagi qaytish portali seni asosiy dunyoga qaytaradi.
+#  Buzilsa -> PORTAL_ENABLED = false qiling, hamma narsa avvalgidek bo'ladi.
+# =========================================================================
+const PORTAL_ENABLED := true
+const OTHERWORLD_OFFSET := 500000   # boshqa olam butunlay boshqa relyef
+const OTHERWORLD_TINT := Color(0.55, 0.45, 0.82)  # binafsha-qorong'i tus
+# Portal sprite-sheet: 6 kadr, har biri 112x128 (Isometric_Portal.png)
+const PORTAL_SHEET_PATH := "res://assets/objects/portal.png"
+const PORTAL_FRAME_W := 112
+const PORTAL_FRAME_H := 128
+const PORTAL_FRAMES := 6
+const PORTAL_FPS := 8.0
+const PORTAL_MAX_HEIGHT := 62.0     # o'yindagi ko'rinadigan balandlik
+var portal_sheet: Texture2D = null
+var current_realm := 0              # 0 = asosiy dunyo, 1 = boshqa olam
+var portal_cell = null              # Vector2i — joriy olamdagi portal katagi
+var overworld_return_pos := Vector2.ZERO  # asosiy dunyoga qaytish joyi
+var _portal_t := 0.0                # portal aylanish animatsiyasi
+var _portal_use_cd := 0.0           # portalni ketma-ket ishlatib yubormaslik
+
+# =========================================================================
 #  YER BALANDLIGI (TERRASA) — 4-rasmdagi Minecraft uslubi
 #  ELEVATION_ENABLED = false qilsangiz hamma narsa AVVALGIDEK tekis bo'ladi
 #  (ya'ni bu tizim biror joyni buzsa, darhol o'chirib qo'yish mumkin).
@@ -1332,6 +1356,14 @@ func _ready() -> void:
 	if player != null:
 		_tut_spawn_pos = player.position
 
+	# PORTAL — sprite-sheet yuklaymiz + sinov uchun personaj oldida (chapdan) paydo bo'ladi
+	portal_sheet = load(PORTAL_SHEET_PATH) as Texture2D
+	if portal_sheet == null:
+		push_warning("Portal rasmi topilmadi: " + PORTAL_SHEET_PATH)
+	if PORTAL_ENABLED and player != null and portal_cell == null:
+		var _pc := local_to_grid(player.position)
+		portal_cell = _find_free_land_cell(_pc + Vector2i(-2, 2), 10)
+
 	# Tutorial faqat BIRINCHI marta ko'rsatiladi (tugagach fayl saqlanadi).
 	# Qayta ko'rmoqchi bo'lsang shu faylni o'chir: user://aethera_tutorial.done
 	if FileAccess.file_exists(TUTORIAL_SAVE):
@@ -1440,7 +1472,13 @@ func save_game() -> bool:
 	}
 
 	if player != null:
-		data["player"] = [player.position.x, player.position.y]
+		# Saqlash DOIM asosiy dunyo koordinatalarida bo'ladi: agar hozir
+		# boshqa olamda bo'lsak, qaytish nuqtasini yozamiz (yuklashda asosiy
+		# dunyo tiklanadi — seed realm 0 bo'ladi).
+		if current_realm != 0:
+			data["player"] = [overworld_return_pos.x, overworld_return_pos.y]
+		else:
+			data["player"] = [player.position.x, player.position.y]
 
 	for slot in inv:
 		if slot == null:
@@ -4414,7 +4452,9 @@ func _draw() -> void:
 		for col in range(oA, oB + 1):
 			var row = s - col
 			var cell := Vector2i(col, row)
-			if workbenches.has(cell):
+			if portal_cell != null and cell == portal_cell:
+				_draw_portal(cell)
+			elif workbenches.has(cell):
 				_draw_workbench(cell)
 			elif furnaces.has(cell):
 				_draw_furnace(cell)
@@ -4515,6 +4555,14 @@ func _process(delta: float) -> void:
 
 	_anim_timer += delta
 	_beacon_t += delta
+	_portal_t += delta
+
+	# PORTAL — personaj portal ustiga chiqsa boshqa olamga o'tadi
+	if PORTAL_ENABLED and player != null:
+		if _portal_use_cd > 0.0:
+			_portal_use_cd -= delta
+		elif portal_cell != null and local_to_grid(player.position) == portal_cell:
+			_enter_portal()
 
 	# AVTOSAQLASH — har AUTOSAVE_EVERY soniyada (o'yin yopilib qolsa ham yo'qolmaydi)
 	_autosave_t += delta
@@ -5364,6 +5412,126 @@ func _is_occupied_cell(cell: Vector2i) -> bool:
 	if deco == "tree" or deco == "cactus" or deco == "rock":
 		return true
 	return _is_building_cell(cell)
+
+
+# =========================================================================
+#  PORTAL / BOSHQA OLAM — yordamchi funksiyalar
+# =========================================================================
+# Berilgan katak atrofidan BO'SH quruqlik (suv/daraxt/tosh/bino emas) topadi.
+func _find_free_land_cell(start: Vector2i, max_r: int) -> Vector2i:
+	if not _is_occupied_cell(start):
+		return start
+	for radius in range(1, max_r + 1):
+		for a in range(0, 360, 20):
+			var ang := deg_to_rad(float(a))
+			var c := start + Vector2i(
+				int(round(cos(ang) * radius)),
+				int(round(sin(ang) * radius)))
+			if not _is_occupied_cell(c):
+				return c
+	return start
+
+
+# Dunyo shovqinlarini qayta urug'lantiradi (offset = boshqa olam uchun katta son),
+# so'ng relyef keshlarini tozalaydi — yangi dunyo darhol chiziladi.
+func _apply_world_seeds(offset: int) -> void:
+	height_noise.seed = WORLD_SEED + offset
+	biome_noise.seed = WORLD_SEED + 4242 + offset
+	humid_noise.seed = WORLD_SEED + 8888 + offset
+	elev_noise.seed = WORLD_SEED + 555 + offset
+	decor_noise.seed = WORLD_SEED + 999 + offset
+	_gt_cache.clear()
+	_dt_cache.clear()
+	_tile_cache.clear()
+	_cliff_cache.clear()
+	_elev_cache.clear()
+
+
+# Portalga kirish — olamni almashtiradi.
+func _enter_portal() -> void:
+	if player == null:
+		return
+	_portal_use_cd = 1.5
+	play_sfx("collect", -4.0, 0.05)
+
+	# Bu olamning hayvonlari/tushgan resurslari boshqa olamga o'tmasin
+	for a in animals:
+		if is_instance_valid(a):
+			a.queue_free()
+	animals.clear()
+	wood_items.clear()
+
+	if current_realm == 0:
+		# Asosiy dunyo -> BOSHQA OLAM
+		overworld_return_pos = player.position
+		current_realm = 1
+		_apply_world_seeds(OTHERWORLD_OFFSET)
+		modulate = OTHERWORLD_TINT
+		# Yangi olamda personajni xavfsiz quruqlikka qo'yamiz
+		var here := local_to_grid(player.position)
+		var land := _find_free_land_cell(here, 40)
+		player.position = grid_to_local(land.x, land.y)
+		# Qaytish portali shu yerning yonida
+		portal_cell = _find_free_land_cell(land + Vector2i(-2, 2), 10)
+		show_hint("Boshqa olamga o'tding...", 2.5)
+	else:
+		# Boshqa olam -> ASOSIY DUNYO
+		current_realm = 0
+		_apply_world_seeds(0)
+		modulate = Color(1, 1, 1)
+		player.position = overworld_return_pos
+		var pc := local_to_grid(player.position)
+		portal_cell = _find_free_land_cell(pc + Vector2i(-2, 2), 10)
+		show_hint("Asosiy dunyoga qaytding.", 2.5)
+
+	_tut_spawn_pos = player.position
+	last_player_safe_pos = player.position
+	queue_redraw()
+
+
+# Portalni chizadi — animatsion sprite (6 kadr). Rasm bo'lmasa zaxira
+# usul (binafsha pulsli ellips) chiziladi, o'yin baribir ishlaydi.
+func _draw_portal(cell: Vector2i) -> void:
+	var center := grid_to_local(cell.x, cell.y)
+	center.y -= _lift_px(cell.x, cell.y)
+
+	if portal_sheet != null:
+		var frame: int = int(_portal_t * PORTAL_FPS) % PORTAL_FRAMES
+		var src := Rect2(frame * PORTAL_FRAME_W, 0, PORTAL_FRAME_W, PORTAL_FRAME_H)
+		var sc: float = PORTAL_MAX_HEIGHT / float(PORTAL_FRAME_H)
+		var dw: float = float(PORTAL_FRAME_W) * sc
+		var dh: float = float(PORTAL_FRAME_H) * sc
+		# Pastki qismi katakning yer nuqtasiga tegib tursin
+		var dst_pos := center - Vector2(dw / 2.0, dh - TILE_H / 2.0)
+		draw_texture_rect_region(portal_sheet, Rect2(dst_pos, Vector2(dw, dh)), src)
+		return
+
+	# ---- ZAXIRA (rasm topilmasa) ----
+	var cx := center.x
+	var cy := center.y - 20.0
+	var rx := 14.0
+	var ry := 21.0
+	var pulse := 0.5 + 0.5 * sin(_portal_t * 3.0)
+	var glow_pts := PackedVector2Array()
+	for i in range(24):
+		var ga := TAU * float(i) / 24.0
+		glow_pts.append(Vector2(cx + cos(ga) * (rx + 6.0), cy + sin(ga) * (ry + 6.0)))
+	draw_colored_polygon(glow_pts, Color(0.45, 0.2, 0.9, 0.18 + pulse * 0.12))
+	var fill := PackedVector2Array()
+	for i in range(24):
+		var fa := TAU * float(i) / 24.0
+		fill.append(Vector2(cx + cos(fa) * rx, cy + sin(fa) * ry))
+	draw_colored_polygon(fill, Color(0.10, 0.02, 0.20, 0.92))
+	for k in range(10):
+		var pa := _portal_t * 2.0 + TAU * float(k) / 10.0
+		var rr := 0.45 + 0.45 * sin(_portal_t * 3.0 + float(k))
+		var pp := Vector2(cx + cos(pa) * rx * rr, cy + sin(pa) * ry * rr)
+		draw_circle(pp, 1.6, Color(0.85, 0.65, 1.0, 0.9))
+	var ring := PackedVector2Array()
+	for i in range(25):
+		var ra := TAU * float(i) / 24.0
+		ring.append(Vector2(cx + cos(ra) * rx, cy + sin(ra) * ry))
+	draw_polyline(ring, Color(0.7, 0.4, 1.0, 0.9), 2.0 + pulse * 1.5, true)
 
 func _stand_position_for_cell(cell: Vector2i) -> Vector2:
 	var target := grid_to_local(cell.x, cell.y)
