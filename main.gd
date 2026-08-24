@@ -217,6 +217,37 @@ const CLIFF_COL_SE := Color(0.50, 0.37, 0.24)
 const CLIFF_COL_SW := Color(0.38, 0.28, 0.17)
 var _elev_cache := {}
 
+# =========================================================================
+#  TERRAIN V2 — professional procedural relief (balandlik/vodiy/cliff)
+#  Bitta bayroq bilan boshqariladi. TERRAIN_V2 = false -> hamma narsa
+#  avvalgidek (tekis) bo'ladi. Faqat KO'RINISHga ta'sir qiladi: player
+#  harakati/urish/inventar buzilmaydi (balandlik yurishni to'smaydi).
+# =========================================================================
+const TERRAIN_V2 := true
+
+# ---- BALANDLIK (config) ----
+const HEIGHT_LEVELS := 4          # 0..4 diskret terrasa darajasi
+const HEIGHT_STEP_PX := 6.5       # har daraja ekranda necha px yuqoriga (HEIGHT_SCREEN_OFFSET)
+const HEIGHT_FLATTEN := 1.9       # >1 -> ko'p yer past/tekis, tepaliklar kamroq (power egri)
+# Ko'p qatlamli coherent noise chastotalari (katta/o'rta/mayda relyef)
+const LARGE_NOISE_SCALE := 0.010
+const MEDIUM_NOISE_SCALE := 0.030
+const SMALL_NOISE_SCALE := 0.080
+const LARGE_W := 0.60
+const MEDIUM_W := 0.30
+const SMALL_W := 0.10
+
+# ---- CLIFF (config) ----
+const CLIFF_STEP_THRESHOLD := 1   # qo'shni bilan shu darajadan katta farq -> aniq cliff
+const CLIFF_DIRT := Color(0.45, 0.32, 0.20)   # yon devor — tuproq
+const CLIFF_STONE := Color(0.31, 0.27, 0.24)  # pastki qism — tosh (to'qroq)
+const CLIFF_GRASS_LIP := Color(0.36, 0.54, 0.26)  # tepa lab — o't chizig'i
+const CLIFF_SAND_DIRT := Color(0.72, 0.60, 0.37)  # qum biome yon devori
+const CLIFF_SNOW_DIRT := Color(0.66, 0.68, 0.74)  # qor biome yon devori
+
+# ---- DECORATION SLOPE (config) ----
+const DECOR_MAX_SLOPE := 1        # daraxt faqat qiyaligi shu darajagacha bo'lgan joyda
+
 # ---- TERRASA BALANDLIK TAYLLARI (height_0/1/2, 128x128) ----
 # USE_HEIGHT_TILES=false -> eski poligon-cliff usuliga qaytadi.
 # Faqat GRASS biomда balandlik bo'ladi (sand/snow tekis qoladi).
@@ -1001,8 +1032,10 @@ func _ready() -> void:
 	# JUDA past frequency = KATTA, keng plato zonalari (mayda "yoriq" cliff'lar emas).
 	elev_noise.seed = WORLD_SEED + 555
 	elev_noise.noise_type = FastNoiseLite.TYPE_SIMPLEX_SMOOTH
-	elev_noise.frequency = 0.0042
-	elev_noise.fractal_octaves = 2
+	# TERRAIN_V2 ko'p qatlamli sampling qiladi (_terrain_h01): chastota 1.0,
+	# oktavalar 1 -> masshtablarni O'ZIMIZ LARGE/MEDIUM/SMALL_NOISE_SCALE bilan beramiz.
+	elev_noise.frequency = 1.0
+	elev_noise.fractal_octaves = 1
 
 	decor_noise.seed = WORLD_SEED + 999
 	decor_noise.noise_type = FastNoiseLite.TYPE_SIMPLEX
@@ -1930,32 +1963,57 @@ func _ground_type(col: int, row: int) -> String:
 
 # Shu katakning BALANDLIK DARAJASI (0..ELEV_LEVELS).
 # Suv doim 0 (dengiz sathi). Quruqlik noise bo'yicha ko'tariladi.
+# Ko'p qatlamli coherent noise -> [0,1] tabiiy balandlik maydoni.
+# Katta relyef (tepalik/vodiy) + o'rta + mayda notekislik birlashtiriladi.
+func _terrain_h01(col: int, row: int) -> float:
+	var fx := float(col)
+	var fy := float(row)
+	var nl := elev_noise.get_noise_2d(fx * LARGE_NOISE_SCALE, fy * LARGE_NOISE_SCALE)
+	var nm := elev_noise.get_noise_2d(fx * MEDIUM_NOISE_SCALE + 1000.0, fy * MEDIUM_NOISE_SCALE + 1000.0)
+	var ns := elev_noise.get_noise_2d(fx * SMALL_NOISE_SCALE + 5000.0, fy * SMALL_NOISE_SCALE + 5000.0)
+	var n := nl * LARGE_W + nm * MEDIUM_W + ns * SMALL_W   # ~[-1, 1]
+	return clampf(n * 0.5 + 0.5, 0.0, 1.0)                  # [0, 1]
+
+
+# Balandlikni diskret darajaga (0..HEIGHT_LEVELS) kvantlaymiz.
+# HEIGHT_FLATTEN egri: ko'p yer tekis, tepaliklar kamroq va tabiiy.
+func _height_level(col: int, row: int) -> int:
+	var h := _terrain_h01(col, row)
+	h = pow(h, HEIGHT_FLATTEN)
+	return clampi(int(round(h * float(HEIGHT_LEVELS))), 0, HEIGHT_LEVELS)
+
+
 func _elevation(col: int, row: int) -> int:
-	if not ELEVATION_ENABLED:
+	if not (TERRAIN_V2 or ELEVATION_ENABLED):
 		return 0
 	var key := Vector2i(col, row)
 	if _elev_cache.has(key):
 		return _elev_cache[key]
 	var lvl := 0
-	# Faqat GRASS biomда terrasa (height_* tayllari o't uchun). Boshqa biomlar tekis.
-	if _ground_type(col, row) == "grass":
-		var n := elev_noise.get_noise_2d(col, row)   # ~[-1, 1]
-		# Ko'p yer past, tepaliklar KAMROQ va KENGROQ (mayda flek emas)
-		if n > 0.22:
-			lvl = 1
-		if n > 0.52:
-			lvl = 2
+	# Suv doim dengiz sathida (0). Quruqlik ko'tariladi.
+	if _ground_type(col, row) != "water":
+		if TERRAIN_V2:
+			lvl = _height_level(col, row)     # BARCHA quruqlik biomlari (tepalik/vodiy)
+		elif _ground_type(col, row) == "grass":
+			# Eski usul (faqat grass, 0..2)
+			var n := elev_noise.get_noise_2d(col, row)
+			if n > 0.22:
+				lvl = 1
+			if n > 0.52:
+				lvl = 2
 	if _elev_cache.size() > 60000:
 		_elev_cache.clear()
 	_elev_cache[key] = lvl
 	return lvl
 
 
-# Shu katak DRAW paytida necha px yuqoriga ko'tariladi (height tayl o'lchoviga mos)
+# Shu katak DRAW paytida necha px yuqoriga ko'tariladi.
 func _lift_px(col: int, row: int) -> float:
-	if not ELEVATION_ENABLED:
+	if not (TERRAIN_V2 or ELEVATION_ENABLED):
 		return 0.0
 	var l: int = _elevation(col, row)
+	if TERRAIN_V2:
+		return float(l) * HEIGHT_STEP_PX
 	if USE_HEIGHT_TILES:
 		return float(HEIGHT_LIFT_PX[mini(l, HEIGHT_LIFT_PX.size() - 1)])
 	return float(l) * LEVEL_LIFT
@@ -2063,10 +2121,24 @@ func _decor_at(col: int, row: int) -> String:
 	if _dt_cache.has(key):
 		return _dt_cache[key]
 	var d := _decor_type(col, row, _ground_type(col, row))
+	# Tik cliff ustiga daraxt qo'ymaymiz (tabiiy ko'rinmaydi) — toshga yo'l qo'yamiz.
+	if d == "tree" and TERRAIN_V2 and _slope_at(col, row) > DECOR_MAX_SLOPE:
+		d = ""
 	if _dt_cache.size() > 60000:
 		_dt_cache.clear()
 	_dt_cache[key] = d
 	return d
+
+
+# Katakning qiyaligi = 4 qo'shni bilan eng katta balandlik farqi (daraja).
+func _slope_at(col: int, row: int) -> int:
+	var l := _elevation(col, row)
+	var m := 0
+	m = maxi(m, absi(l - _elevation(col + 1, row)))
+	m = maxi(m, absi(l - _elevation(col - 1, row)))
+	m = maxi(m, absi(l - _elevation(col, row + 1)))
+	m = maxi(m, absi(l - _elevation(col, row - 1)))
+	return m
 
 
 func grid_to_local(col: int, row: int) -> Vector2:
@@ -2200,30 +2272,50 @@ func _draw_cliff(col: int, row: int) -> void:
 # TERRASA cliff yuzasi: shu (ko'tarilgan) katakdan PASTROQ old qo'shniga tushadi.
 # Old qo'shnilar: SE=(col+1,row), SW=(col,row+1). Poligon = ko'tarilgan chetdan
 # qo'shni sathigacha. block teksturasi emas, bo'yalgan dirt yuza (yoriqsiz).
+# TERRAIN_V2 cliff: ko'tarilgan katakning OLD (kameraga qaragan) yon devorlarini
+# PASTROQ qo'shnigacha TO'LIQ (yoriqsiz) to'ldiradi. Layer: o't labi -> tuproq -> tosh.
 func _draw_elev_cliff(col: int, row: int) -> void:
 	var lift := _lift_px(col, row)
 	if lift <= 0.0:
 		return
 	var c := grid_to_local(col, row)
-	var b := c + Vector2(0.0, TILE_H / 2.0)          # pastki uch
+	var b := c + Vector2(0.0, TILE_H / 2.0)          # pastki uch (sath 0)
 	var rr := c + Vector2(TILE_W / 2.0, 0.0)          # o'ng uch
 	var ll := c + Vector2(-TILE_W / 2.0, 0.0)         # chap uch
 	var up := Vector2(0.0, -lift)                     # ko'tarilgan chet
-	var line := Color(0.26, 0.18, 0.11, 0.45)
-	# SE yuza (o'ng) — qo'shni pastroq bo'lsagina
-	var nb_se := _lift_px(col + 1, row)
-	if nb_se < lift:
+	# Biomega qarab yon devor rangi
+	var gr := _ground_type(col, row)
+	var dirt := CLIFF_DIRT
+	if gr == "sand" or gr == "savanna" or gr == "steppe":
+		dirt = CLIFF_SAND_DIRT
+	elif gr == "snow" or gr == "tundra":
+		dirt = CLIFF_SNOW_DIRT
+	# SE yuza (o'ng) — old qo'shni pastroq bo'lsagina (suv -> 0)
+	var nb_se := maxf(_lift_px(col + 1, row), 0.0)
+	if nb_se < lift - 0.01:
 		var d := Vector2(0.0, -nb_se)
-		draw_colored_polygon(PackedVector2Array([b + up, rr + up, rr + d, b + d]),
-			CLIFF_COL_SE)
-		draw_line((b + up + b + d) * 0.5, (rr + up + rr + d) * 0.5, line, 1.0)
+		_draw_cliff_face(b + up, rr + up, rr + d, b + d, dirt)
 	# SW yuza (chap)
-	var nb_sw := _lift_px(col, row + 1)
-	if nb_sw < lift:
+	var nb_sw := maxf(_lift_px(col, row + 1), 0.0)
+	if nb_sw < lift - 0.01:
 		var d2 := Vector2(0.0, -nb_sw)
-		draw_colored_polygon(PackedVector2Array([ll + up, b + up, b + d2, ll + d2]),
-			CLIFF_COL_SW)
-		draw_line((ll + up + ll + d2) * 0.5, (b + up + b + d2) * 0.5, line, 1.0)
+		_draw_cliff_face(ll + up, b + up, b + d2, ll + d2, dirt)
+
+
+# Bitta cliff yon yuzasi: to'liq tuproq + pastki qism tosh + tepa o't labi.
+# Poligonlar bir-birini yopadi -> orada shaffof "yoriq" qolmaydi.
+func _draw_cliff_face(tl: Vector2, tr: Vector2, br: Vector2, bl: Vector2,
+		dirt: Color) -> void:
+	# 1) Butun yuza — tuproq
+	draw_colored_polygon(PackedVector2Array([tl, tr, br, bl]), dirt)
+	# 2) Pastki ~45% — tosh (to'qroq, ildiz/qoya)
+	var ml := tl.lerp(bl, 0.55)
+	var mr := tr.lerp(br, 0.55)
+	draw_colored_polygon(PackedVector2Array([ml, mr, br, bl]), CLIFF_STONE)
+	# 3) Tepa lab — yorug' o't chizig'i (usti o't ekanini bildiradi)
+	var gl := tl.lerp(bl, 0.14)
+	var gr2 := tr.lerp(br, 0.14)
+	draw_colored_polygon(PackedVector2Array([tl, tr, gr2, gl]), CLIFF_GRASS_LIP)
 
 
 # TERRASA balandlik tayli (height_0/1/2) — o't usti + tuproq yon bloki.
@@ -4364,6 +4456,16 @@ func _draw() -> void:
 					elif USE_HEIGHT_TILES and gr == "grass" and not tilled_cells.has(gcell):
 						# GRASS biom — terrasa balandlik bloki (height_0/1/2)
 						_draw_height_tile(col, row, _elevation(col, row))
+					elif TERRAIN_V2 and gr != "water":
+						# TERRAIN_V2: quruqlikni balandlik darajasiga KO'TARIB chizamiz,
+						# ochilgan yon devorni cliff bilan to'ldiramiz (yoriqsiz).
+						var l2 := _lift_px(col, row)
+						if l2 > 0.0:
+							_draw_elev_cliff(col, row)                     # yon devor (past qo'shnigacha)
+							draw_texture(gtex, gc - half - Vector2(0.0, l2))  # ust — ko'tarilgan
+						else:
+							draw_texture(gtex, gc - half)
+							_draw_cliff_cached(col, row)                   # suv cheti (agar bor bo'lsa)
 					else:
 						# Boshqa biom yer tayli (balandliksiz, tekis)
 						draw_texture(gtex, gc - half)
