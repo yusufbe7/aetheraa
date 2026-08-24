@@ -102,17 +102,20 @@ const TREE_MAX_HEIGHT := 76.0
 # Oxirgi element DOIMO rare daraxt bo'lishi kerak.
 const RARE_TREE_CHANCE := 0.015 # 1.5% — faqat kamdan-kam chiqadigan daraxt
 
-# Har daraxt: [nom, o'yindagi maksimal balandlik]
-# O'lcham PNG dan avtomatik olinadi (atrofidagi shaffof joy kesiladi),
-# shuning uchun barcha daraxtlar bir xil masshtabda ko'rinadi.
+# Har daraxt: [ichki nom, maksimal balandlik, kadr_kengligi, kadr_balandligi, fayl]
+#   kadr_kengligi > 0  -> ANIMATSION sheet (jonli shamolda tebranadigan daraxt).
+#                         Sheet gorizontal: 16 kadr yonma-yon. Chetlari KESILMAYDI.
+#   kadr_kengligi = 0  -> STATIK PNG (kaktus/palma). Shaffof chetlari kesiladi.
+# Ichki nom eski kod bilan bir xil qoldi (biome tanlash + drop shu nomlarga
+# bog'liq), faqat KO'RINISH yangi animatsion paketga almashtirildi.
 var TREE_DEFS := [
-	["tree_03",   76.0],  # sariq kuzgi daraxt   (yashil biome)
-	["tree_08",   76.0],  # yashil ignabargli    (yashil biome)
-	["tree_rare", 76.0],  # kamyob kuzgi daraxt  (yashil biome)
-	["tree_05",   40.0],  # KAKTUS — pastroq, daraxtlardan kichik (qum biome)
-	["tree_09",   70.0],  # PALMA                (qum biome)
-	["tree_snow1", 76.0], # QORLI ARCHA 1        (qor biome)
-	["tree_snow2", 76.0], # QORLI ARCHA 2        (qor biome)
+	["tree_03",    76.0, 64,  64, "tree_green"],      # yashil bargli (animatsion)   — yashil biome
+	["tree_08",   100.0, 64, 128, "tree_pine"],       # ignabargli qarag'ay (animatsion) — yashil biome
+	["tree_rare",  78.0, 64,  64, "tree_autumn"],     # kuzgi kamyob (animatsion)    — yashil biome
+	["tree_05",    40.0,  0,   0, "tree_05"],          # KAKTUS (statik)              — qum biome
+	["tree_09",    70.0,  0,   0, "tree_09"],          # PALMA (statik)               — qum biome
+	["tree_snow1", 76.0, 64,  64, "tree_snow"],       # qorli bargli (animatsion)    — qor biome
+	["tree_snow2",100.0, 64, 128, "tree_pine_snow"],  # qorli qarag'ay (animatsion)  — qor biome
 ]
 var _tree_data := []
 
@@ -987,20 +990,45 @@ func _ready() -> void:
 	decor_noise.frequency = 0.07
 
 	for d in TREE_DEFS:
-		# Shaffof chetlarni kesamiz -> barcha daraxt bir xil o'lchovda bo'ladi
-		var t = _load_cropped_texture(TREE_DIR + d[0] + ".png")
-		if t != null:
-			_tree_data.append({
-				"name": d[0],
-				"tex": t,
-				"white": _make_white(t),
-				"fw": t.get_width(),
-				"fh": t.get_height(),
-				"max_h": float(d[1]),
-				"frames": 1
-			})
+		var fname: String = str(d[4])
+		var path: String = TREE_DIR + fname + ".png"
+		var frame_w: int = int(d[2])
+		if frame_w > 0:
+			# ANIMATSION sheet: 16 kadr yonma-yon. Chetlarni KESMAYMIZ
+			# (aks holda kadrlar siljib ketadi). Kadr o'lchami DEFS dan olinadi.
+			var raw := load(path) as Texture2D
+			if raw != null:
+				var fh: int = int(d[3])
+				var total_w: int = raw.get_width()
+				var frames: int = maxi(1, int(total_w / frame_w))
+				_tree_data.append({
+					"name": str(d[0]),
+					"tex": raw,
+					"white": _make_white(raw),
+					"shadow_white": _sheet_frame_white(raw, frame_w, fh),
+					"fw": frame_w,
+					"fh": fh,
+					"max_h": float(d[1]),
+					"frames": frames
+				})
+			else:
+				push_warning("Daraxt topilmadi: " + path)
 		else:
-			push_warning("Daraxt topilmadi: " + TREE_DIR + d[0] + ".png")
+			# STATIK daraxt (kaktus/palma): shaffof chetlarni kesamiz
+			var t = _load_cropped_texture(path)
+			if t != null:
+				_tree_data.append({
+					"name": str(d[0]),
+					"tex": t,
+					"white": _make_white(t),
+					"shadow_white": _make_white(t),
+					"fw": t.get_width(),
+					"fh": t.get_height(),
+					"max_h": float(d[1]),
+					"frames": 1
+				})
+			else:
+				push_warning("Daraxt topilmadi: " + path)
 
 	# STUMP (kesilgan daraxt kundasi)
 	grass_texture = _load_cropped_texture(GRASS_BLOCK_PATH)
@@ -1671,6 +1699,28 @@ func _make_white(tex: Texture2D) -> Texture2D:
 	return ImageTexture.create_from_image(img)
 
 
+# Animatsion sheet'ning BITTA (0-) kadridan oq siluet yasaydi.
+# Soya uchun kerak: soya butun sheet emas, faqat bitta kadr shaklida tushsin.
+func _sheet_frame_white(tex: Texture2D, frame_w: int, frame_h: int) -> Texture2D:
+	if tex == null:
+		return null
+	var img := tex.get_image()
+	if img == null:
+		return null
+	var fw: int = mini(frame_w, img.get_width())
+	var fh: int = mini(frame_h, img.get_height())
+	if fw <= 0 or fh <= 0:
+		return null
+	var frame := img.get_region(Rect2i(0, 0, fw, fh))
+	frame.convert(Image.FORMAT_RGBA8)
+	for y in range(frame.get_height()):
+		for x in range(frame.get_width()):
+			var c := frame.get_pixel(x, y)
+			if c.a > 0.0:
+				frame.set_pixel(x, y, Color(1.0, 1.0, 1.0, c.a))
+	return ImageTexture.create_from_image(frame)
+
+
 # ---- KRISTALL USTUN: animatsiya kadrlarini yuklash ----
 # Sheet bo'lsa — jonli (suzadigan + pulsli) ustun.
 # Sheet yo'q bo'lsa — eski bitta kadrli pillar.png (o'yin ishlashda davom etadi).
@@ -1776,7 +1826,7 @@ const WATER_LEVEL := -0.42
 
 # ---- SUV CHUQURLIGI + SHAFFOFLIK (spec 9-12) ----
 # WATER_DEPTH_ENABLED = false qilsangiz suv avvalgidek to'liq (shaffofsiz) bo'ladi.
-const WATER_DEPTH_ENABLED := true
+const WATER_DEPTH_ENABLED := false  # eski tile suv (tile_104..113) — animatsion frame o'chirildi
 const WATER_DEPTH_RANGE := 0.34        # WATER_LEVEL dan qancha pastda "chuqur" hisoblanadi
 const SHALLOW_WATER_ALPHA := 0.80      # qirg'oq (kamroq shaffof — kulrang bo'lmasin)
 const DEEP_WATER_ALPHA := 0.96         # chuqur — deyarli to'liq ko'k
@@ -4100,7 +4150,10 @@ func _draw_tree_shadow(col: int, row: int) -> void:
 	var base := _shadow_base(col, row)
 	base.x += (_cell_rand(col, row, 31) - 0.5) * TREE_JITTER_X
 	base.y += (_cell_rand(col, row, 32) - 0.5) * TREE_JITTER_Y
-	_draw_shadow(info.get("white", null), base, fw * s, fh * s)
+	# Animatsion daraxtda 'white' = butun sheet (16 kadr). Soya uchun
+	# faqat bitta kadrlik oq siluet ('shadow_white') ishlatamiz.
+	var shw = info.get("shadow_white", info.get("white", null))
+	_draw_shadow(shw, base, fw * s, fh * s)
 
 
 func _draw_rock_shadow(col: int, row: int) -> void:
