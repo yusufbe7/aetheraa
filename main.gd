@@ -106,11 +106,11 @@ const RARE_TREE_CHANCE := 0.015 # 1.5% — faqat kamdan-kam chiqadigan daraxt
 # Ichki nom eski kod bilan bir xil qoldi (biome tanlash + drop shu nomlarga
 # bog'liq), faqat KO'RINISH yangi animatsion paketga almashtirildi.
 var TREE_DEFS := [
-	["tree_03",    76.0, 64,  64, "tree_green"],      # yashil bargli (animatsion)   — yashil biome
-	["tree_rare",  78.0, 64,  64, "tree_autumn"],     # kuzgi kamyob (animatsion)    — yashil biome
+	["tree_03",   102.0, 64,  64, "tree_green"],      # yashil bargli (animatsion)   — yashil biome
+	["tree_rare", 104.0, 64,  64, "tree_autumn"],     # kuzgi kamyob (animatsion)    — yashil biome
 	["tree_05",    40.0,  0,   0, "tree_05"],          # KAKTUS (statik)              — qum biome
 	["tree_09",    70.0,  0,   0, "tree_09"],          # PALMA (statik)               — qum biome
-	["tree_snow1", 76.0, 64,  64, "tree_snow"],       # qorli bargli (animatsion)    — qor biome
+	["tree_snow1",102.0, 64,  64, "tree_snow"],       # qorli bargli (animatsion)    — qor biome
 ]
 var _tree_data := []
 
@@ -224,9 +224,9 @@ var _elev_cache := {}
 const TERRAIN_V2 := true
 
 # ---- BALANDLIK (config) ----
-const HEIGHT_LEVELS := 4          # 0..4 diskret terrasa darajasi
-const HEIGHT_STEP_PX := 6.5       # har daraja ekranda necha px yuqoriga (HEIGHT_SCREEN_OFFSET)
-const HEIGHT_FLATTEN := 1.9       # >1 -> ko'p yer past/tekis, tepaliklar kamroq (power egri)
+const HEIGHT_LEVELS := 3          # 0..3 diskret terrasa darajasi (kamroq cliff = tezroq)
+const HEIGHT_STEP_PX := 7.0       # har daraja ekranda necha px yuqoriga (HEIGHT_SCREEN_OFFSET)
+const HEIGHT_FLATTEN := 2.4       # >1 -> ko'p yer past/tekis, tepaliklar kamroq (power egri)
 # Ko'p qatlamli coherent noise chastotalari (katta/o'rta/mayda relyef)
 const LARGE_NOISE_SCALE := 0.010
 const MEDIUM_NOISE_SCALE := 0.030
@@ -1009,7 +1009,6 @@ func _ready() -> void:
 	# ---- FPS ni MAKSIMAL qilamiz ----
 	# vsync o'chiriladi + kadr chegarasi olib tashlanadi (0 = cheksiz).
 	Engine.max_fps = 0
-	Engine.physics_ticks_per_second = 120
 	DisplayServer.window_set_vsync_mode(DisplayServer.VSYNC_DISABLED)
 
 	height_noise.seed = WORLD_SEED
@@ -2363,16 +2362,9 @@ func _draw_elev_cliff(col: int, row: int) -> void:
 # Poligonlar bir-birini yopadi -> orada shaffof "yoriq" qolmaydi.
 func _draw_cliff_face(tl: Vector2, tr: Vector2, br: Vector2, bl: Vector2,
 		dirt: Color) -> void:
-	# 1) Butun yuza — tuproq
+	# TEZLIK uchun: bitta tuproq poligoni + bitta o't labi chizig'i (yoriqsiz).
 	draw_colored_polygon(PackedVector2Array([tl, tr, br, bl]), dirt)
-	# 2) Pastki ~45% — tosh (to'qroq, ildiz/qoya)
-	var ml := tl.lerp(bl, 0.55)
-	var mr := tr.lerp(br, 0.55)
-	draw_colored_polygon(PackedVector2Array([ml, mr, br, bl]), CLIFF_STONE)
-	# 3) Tepa lab — yorug' o't chizig'i (usti o't ekanini bildiradi)
-	var gl := tl.lerp(bl, 0.14)
-	var gr2 := tr.lerp(br, 0.14)
-	draw_colored_polygon(PackedVector2Array([tl, tr, gr2, gl]), CLIFF_GRASS_LIP)
+	draw_line(tl, tr, CLIFF_GRASS_LIP, 1.5)   # tepa lab — usti o't
 
 
 # TERRASA balandlik tayli (height_0/1/2) — o't usti + tuproq yon bloki.
@@ -3036,8 +3028,11 @@ func _draw_placeable_object(
 			draw_set_transform(pivot + off, rotation, sc)
 			draw_texture_rect(white, Rect2(draw_pos, Vector2(dw, dh)), false)
 
+	# Personaj/hayvon shu obyekt ORQASIDA bo'lsa — daraxt kabi shaffof (soya) bo'ladi
+	var wrect := Rect2(pivot + Vector2(-dw / 2.0, -dh), Vector2(dw, dh))
+	var a := _behind_alpha(cell, wrect)
 	draw_set_transform(pivot, rotation, sc)
-	draw_texture_rect(tex, Rect2(draw_pos, Vector2(dw, dh)), false)
+	draw_texture_rect(tex, Rect2(draw_pos, Vector2(dw, dh)), false, Color(1, 1, 1, a))
 	draw_set_transform(Vector2.ZERO, 0.0, Vector2.ONE)
 
 
@@ -3158,8 +3153,9 @@ func _draw_tree(col: int, row: int) -> void:
 	var my_max_h: float = float(info.get("max_h", TREE_MAX_HEIGHT))
 	# Barqaror o'lcham farqi (0.85..1.12) — daraxtlar bir xil bo'yda bo'lmaydi
 	var tvar := 0.85 + _cell_rand(col, row, 33) * 0.27
+	# Cap 1.8 -> animatsion daraxtlar (64px) o'yinda kattaroq (playerdan baland)
 	var draw_scale: float = minf(
-		1.0,
+		1.8,
 		my_max_h / float(fh)
 	) * tvar
 
@@ -4341,7 +4337,7 @@ func _draw_tree_shadow(col: int, row: int) -> void:
 	var fh := float(info["fh"])
 	var fw := float(info["fw"])
 	var my_max_h: float = float(info.get("max_h", TREE_MAX_HEIGHT))
-	var s := minf(1.0, my_max_h / fh) * (0.85 + _cell_rand(col, row, 33) * 0.27)
+	var s := minf(1.8, my_max_h / fh) * (0.85 + _cell_rand(col, row, 33) * 0.27)
 	var base := _shadow_base(col, row)
 	base.x += (_cell_rand(col, row, 31) - 0.5) * TREE_JITTER_X
 	base.y += (_cell_rand(col, row, 32) - 0.5) * TREE_JITTER_Y
@@ -4545,6 +4541,14 @@ func _draw() -> void:
 			if plazas.has(gcell):
 				_draw_plaza(gcell)
 
+	# TEZLIK: barcha qo'yilgan qurilmalarni BITTA dict'ga yig'amiz. Shunda
+	# har katakda 15 ta .has() o'rniga bitta .has() bo'ladi (FPS uchun muhim).
+	var placed := {}
+	for _bd in [workbenches, furnaces, windmills, magic_tables, anvils, chests,
+			fences, bridges, organs, cauldrons, posts, kilns, beacons, crops]:
+		for _bc in _bd:
+			placed[_bc] = true
+
 	# 1.5) SOYALAR — yer ustiga, obyektlardan OLDIN chiziladi.
 	# (Aks holda soya boshqa daraxt ustiga tushib qolardi.)
 	if Lang.shadows and _daylight() > 0.02:
@@ -4554,6 +4558,16 @@ func _draw() -> void:
 			for col in range(sA, sB + 1):
 				var row = s - col
 				var cell := Vector2i(col, row)
+				if not placed.has(cell):
+					# Eng ko'p uchraydigan holat: bo'sh katak -> faqat decor soyasi
+					var sdeco0 = _decor_at(col, row)
+					if sdeco0 == "tree" or sdeco0 == "cactus":
+						_draw_tree_shadow(col, row)
+					elif sdeco0 == "rock":
+						_draw_rock_shadow(col, row)
+					elif sdeco0 == "stump":
+						_draw_stump_shadow(cell)
+					continue
 				if workbenches.has(cell):
 					_draw_building_shadow(cell, workbench_texture, workbench_white,
 						WORKBENCH_MAX_HEIGHT, WORKBENCH_MAX_WIDTH)
@@ -4587,14 +4601,6 @@ func _draw() -> void:
 				elif kilns.has(cell):
 					_draw_building_shadow(cell, kiln_texture, kiln_white,
 						KILN_MAX_HEIGHT, KILN_MAX_WIDTH)
-				else:
-					var sdeco = _decor_at(col, row)
-					if sdeco == "tree" or sdeco == "cactus":
-						_draw_tree_shadow(col, row)
-					elif sdeco == "rock":
-						_draw_rock_shadow(col, row)
-					elif sdeco == "stump":
-						_draw_stump_shadow(cell)
 
 	# 2) OBYEKTLAR + PERSONAJ + HAYVONLAR — chuqurlik (s = col+row) bo'yicha
 	var player_drawn = false
@@ -4625,7 +4631,22 @@ func _draw() -> void:
 			var cell := Vector2i(col, row)
 			if portal_cell != null and cell == portal_cell:
 				_draw_portal(cell)
-			elif workbenches.has(cell):
+				continue
+			if not placed.has(cell):
+				# Eng ko'p uchraydigan holat: bo'sh katak -> faqat decor
+				var deco0 = _decor_at(col, row)
+				if deco0 == "tree" or deco0 == "cactus":
+					_draw_tree(col, row)
+				elif deco0 == "rock":
+					_draw_rock(col, row)
+				elif deco0 == "stump":
+					_draw_stump(cell)
+				elif deco0 == "grasstuft":
+					_draw_grasstuft(cell)
+				elif deco0 != "":
+					_draw_decor(_stable_pick(DECOR[deco0], col, row, 2), col, row)
+				continue
+			if workbenches.has(cell):
 				_draw_workbench(cell)
 			elif furnaces.has(cell):
 				_draw_furnace(cell)
@@ -4653,18 +4674,6 @@ func _draw() -> void:
 				_draw_beacon(cell)
 			elif crops.has(cell) and not use_blocks:
 				_draw_crop(cell)
-			else:
-				var deco = _decor_at(col, row)
-				if deco == "tree" or deco == "cactus":
-					_draw_tree(col, row)
-				elif deco == "rock":
-					_draw_rock(col, row)
-				elif deco == "stump":
-					_draw_stump(cell)
-				elif deco == "grasstuft":
-					_draw_grasstuft(cell)
-				elif deco != "":
-					_draw_decor(_stable_pick(DECOR[deco], col, row, 2), col, row)
 
 	# Agar hali chizilmagan bo'lsa (eng oldinda) — oxirida chizamiz
 	if not player_drawn:
@@ -5693,7 +5702,10 @@ func _draw_portal(cell: Vector2i) -> void:
 		var dh: float = float(PORTAL_FRAME_H) * sc
 		# Pastki qismi katakning yer nuqtasiga tegib tursin
 		var dst_pos := center - Vector2(dw / 2.0, dh - TILE_H / 2.0)
-		draw_texture_rect_region(portal_sheet, Rect2(dst_pos, Vector2(dw, dh)), src)
+		# Personaj/hayvon portal ORQASIDA bo'lsa — daraxt kabi shaffof (soya) bo'ladi
+		var prect := Rect2(dst_pos, Vector2(dw, dh))
+		var pa := _behind_alpha(cell, prect)
+		draw_texture_rect_region(portal_sheet, prect, src, Color(1, 1, 1, pa))
 		return
 
 	# ---- ZAXIRA (rasm topilmasa) ----
