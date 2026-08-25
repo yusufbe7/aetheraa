@@ -107,12 +107,10 @@ const RARE_TREE_CHANCE := 0.015 # 1.5% — faqat kamdan-kam chiqadigan daraxt
 # bog'liq), faqat KO'RINISH yangi animatsion paketga almashtirildi.
 var TREE_DEFS := [
 	["tree_03",    76.0, 64,  64, "tree_green"],      # yashil bargli (animatsion)   — yashil biome
-	["tree_08",   100.0, 64, 128, "tree_pine"],       # ignabargli qarag'ay (animatsion) — yashil biome
 	["tree_rare",  78.0, 64,  64, "tree_autumn"],     # kuzgi kamyob (animatsion)    — yashil biome
 	["tree_05",    40.0,  0,   0, "tree_05"],          # KAKTUS (statik)              — qum biome
 	["tree_09",    70.0,  0,   0, "tree_09"],          # PALMA (statik)               — qum biome
 	["tree_snow1", 76.0, 64,  64, "tree_snow"],       # qorli bargli (animatsion)    — qor biome
-	["tree_snow2",100.0, 64, 128, "tree_pine_snow"],  # qorli qarag'ay (animatsion)  — qor biome
 ]
 var _tree_data := []
 
@@ -285,8 +283,9 @@ const NET_SEND_RATE := 0.05
 var follow_player := true
 var last_player_safe_pos := Vector2.ZERO
 
-# Personaj daraxt bilan proporsional ko'rinsin.
-const PLAYER_DRAW_SCALE := 0.09
+# Personaj o'lchami: bitta blok ustida bemalol, realistik tursin.
+# Kattaroq = kattaroq personaj (0.09 -> 0.11). Sozlash uchun shu qiymatni o'zgartiring.
+const PLAYER_DRAW_SCALE := 0.11
 
 # ---- SAKRASH (SPACE) ----
 var jump_z := 0.0          # personaj yer ustidan balandligi
@@ -1007,6 +1006,12 @@ func _on_server_gone() -> void:
 
 
 func _ready() -> void:
+	# ---- FPS ni MAKSIMAL qilamiz ----
+	# vsync o'chiriladi + kadr chegarasi olib tashlanadi (0 = cheksiz).
+	Engine.max_fps = 0
+	Engine.physics_ticks_per_second = 120
+	DisplayServer.window_set_vsync_mode(DisplayServer.VSYNC_DISABLED)
+
 	height_noise.seed = WORLD_SEED
 	height_noise.noise_type = FastNoiseLite.TYPE_SIMPLEX_SMOOTH
 	# Pastroq frequency = KATTAROQ, kengroq suv havzalari (mayda ko'lmaklar emas).
@@ -3469,21 +3474,31 @@ func _draw_player() -> void:
 		draw_texture(tex, -Vector2(tex.get_width() / 2.0, tex.get_height() / 2.0))
 		draw_set_transform(Vector2.ZERO, 0.0, Vector2.ONE)
 
-	# ---- SUZISH: pastki qism suv ostida (tanani ko'kimtir bosadi) + to'lqin ----
+	# ---- SUZISH: BOSH suv ustida ko'rinadi, TANA suv ostida qoladi ----
 	if in_water:
-		var body_w: float = w * 0.62
-		var submerge_h: float = h * 0.40   # tananing pastki 40% i suv ostida
-		var wtop: float = draw_pos.y - submerge_h * 0.55
-		var wrect := Rect2(draw_pos.x - body_w / 2.0, wtop, body_w, submerge_h)
-		draw_rect(wrect, Color(0.35, 0.62, 0.78, 0.55))
-		# Yuzadagi to'lqin chizig'i (sekin pulslab kengayadi)
+		var top_y: float = draw_pos.y - h / 2.0
+		var feet_y: float = draw_pos.y + h / 2.0
+		# Suv sathi ~bo'yin/ko'krak: yuqori ~34% (bosh) ko'rinib turadi.
+		var waterline: float = top_y + h * 0.34
+		var body_w: float = w * 0.80
+		# Tanani suv bosadi (yarim shaffof ko'k — tana suv tagida ko'rinib turadi)
+		var wrect := Rect2(draw_pos.x - body_w / 2.0, waterline,
+			body_w, feet_y - waterline)
+		draw_rect(wrect, Color(0.28, 0.55, 0.74, 0.66))
+		# Suv sathi chizig'i (bosh atrofida yorug' halqa)
 		var ripple: float = 0.5 + 0.5 * sin(_beacon_t * 3.0)
-		var rw: float = body_w * (0.9 + 0.3 * ripple)
-		draw_arc(Vector2(draw_pos.x, wtop), rw / 2.0, 0.0, PI, 10,
-			Color(0.85, 0.95, 1.0, 0.35 * (1.0 - ripple * 0.5)), 2.0)
+		var rw: float = body_w * (0.95 + 0.3 * ripple)
+		draw_arc(Vector2(draw_pos.x, waterline), rw / 2.0, 0.0, PI, 12,
+			Color(0.88, 0.96, 1.0, 0.45 * (1.0 - ripple * 0.4)), 2.0)
+		# Sath ustidagi ingichka yorug' chiziq
+		draw_line(Vector2(draw_pos.x - body_w / 2.0, waterline),
+			Vector2(draw_pos.x + body_w / 2.0, waterline),
+			Color(0.9, 0.97, 1.0, 0.35), 1.0)
 		# Kichik pufakchalar
-		draw_circle(Vector2(draw_pos.x - body_w * 0.25, wtop + 4.0), 1.6, Color(0.9, 0.97, 1.0, 0.5))
-		draw_circle(Vector2(draw_pos.x + body_w * 0.22, wtop + 7.0), 1.2, Color(0.9, 0.97, 1.0, 0.4))
+		draw_circle(Vector2(draw_pos.x - body_w * 0.25, waterline + 5.0), 1.6,
+			Color(0.9, 0.97, 1.0, 0.5))
+		draw_circle(Vector2(draw_pos.x + body_w * 0.22, waterline + 9.0), 1.2,
+			Color(0.9, 0.97, 1.0, 0.4))
 
 
 # LAN: boshqa o'yinchilarni chizadi
@@ -4703,11 +4718,30 @@ func _draw() -> void:
 		]), Color(1, 1, 0.4, 0.25))
 
 
+# Sichqoncha chopiladigan/ishlatiladigan narsa ustida bo'lsa -> qo'l ko'rsatkichi.
+# (Oq kontur allaqachon yonadi; bu qo'shimcha vizual belgi.)
+func _update_hover_cursor() -> void:
+	var interactable := false
+	var hd := _decor_at(hovered_cell.x, hovered_cell.y)
+	if hd == "tree" or hd == "cactus" or hd == "rock" or hd == "stump" or hd == "grasstuft":
+		interactable = true
+	elif _is_building_cell(hovered_cell) or crops.has(hovered_cell):
+		interactable = true
+	else:
+		for a in animals:
+			if is_instance_valid(a) and a.has_method("_is_hovered") and a._is_hovered():
+				interactable = true
+				break
+	Input.set_default_cursor_shape(
+		Input.CURSOR_POINTING_HAND if interactable else Input.CURSOR_ARROW)
+
+
 func _process(delta: float) -> void:
 	# INFO paneli faqat kraft oynasi ochiq bo'lsagina ko'rinadi
 	if info_open and not (workbench_open or magic_open or anvil_open):
 		info_open = false
 	hovered_cell = local_to_grid(to_local(get_global_mouse_position()))
+	_update_hover_cursor()
 
 	_anim_timer += delta
 	_beacon_t += delta
