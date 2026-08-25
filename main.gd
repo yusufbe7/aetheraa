@@ -3028,8 +3028,11 @@ func _draw_placeable_object(
 			draw_set_transform(pivot + off, rotation, sc)
 			draw_texture_rect(white, Rect2(draw_pos, Vector2(dw, dh)), false)
 
+	# Personaj/hayvon shu obyekt ORQASIDA bo'lsa — daraxt kabi shaffof (soya) bo'ladi
+	var wrect := Rect2(pivot + Vector2(-dw / 2.0, -dh), Vector2(dw, dh))
+	var a := _behind_alpha(cell, wrect)
 	draw_set_transform(pivot, rotation, sc)
-	draw_texture_rect(tex, Rect2(draw_pos, Vector2(dw, dh)), false)
+	draw_texture_rect(tex, Rect2(draw_pos, Vector2(dw, dh)), false, Color(1, 1, 1, a))
 	draw_set_transform(Vector2.ZERO, 0.0, Vector2.ONE)
 
 
@@ -4538,6 +4541,14 @@ func _draw() -> void:
 			if plazas.has(gcell):
 				_draw_plaza(gcell)
 
+	# TEZLIK: barcha qo'yilgan qurilmalarni BITTA dict'ga yig'amiz. Shunda
+	# har katakda 15 ta .has() o'rniga bitta .has() bo'ladi (FPS uchun muhim).
+	var placed := {}
+	for _bd in [workbenches, furnaces, windmills, magic_tables, anvils, chests,
+			fences, bridges, organs, cauldrons, posts, kilns, beacons, crops]:
+		for _bc in _bd:
+			placed[_bc] = true
+
 	# 1.5) SOYALAR — yer ustiga, obyektlardan OLDIN chiziladi.
 	# (Aks holda soya boshqa daraxt ustiga tushib qolardi.)
 	if Lang.shadows and _daylight() > 0.02:
@@ -4547,6 +4558,16 @@ func _draw() -> void:
 			for col in range(sA, sB + 1):
 				var row = s - col
 				var cell := Vector2i(col, row)
+				if not placed.has(cell):
+					# Eng ko'p uchraydigan holat: bo'sh katak -> faqat decor soyasi
+					var sdeco0 = _decor_at(col, row)
+					if sdeco0 == "tree" or sdeco0 == "cactus":
+						_draw_tree_shadow(col, row)
+					elif sdeco0 == "rock":
+						_draw_rock_shadow(col, row)
+					elif sdeco0 == "stump":
+						_draw_stump_shadow(cell)
+					continue
 				if workbenches.has(cell):
 					_draw_building_shadow(cell, workbench_texture, workbench_white,
 						WORKBENCH_MAX_HEIGHT, WORKBENCH_MAX_WIDTH)
@@ -4580,14 +4601,6 @@ func _draw() -> void:
 				elif kilns.has(cell):
 					_draw_building_shadow(cell, kiln_texture, kiln_white,
 						KILN_MAX_HEIGHT, KILN_MAX_WIDTH)
-				else:
-					var sdeco = _decor_at(col, row)
-					if sdeco == "tree" or sdeco == "cactus":
-						_draw_tree_shadow(col, row)
-					elif sdeco == "rock":
-						_draw_rock_shadow(col, row)
-					elif sdeco == "stump":
-						_draw_stump_shadow(cell)
 
 	# 2) OBYEKTLAR + PERSONAJ + HAYVONLAR — chuqurlik (s = col+row) bo'yicha
 	var player_drawn = false
@@ -4618,7 +4631,22 @@ func _draw() -> void:
 			var cell := Vector2i(col, row)
 			if portal_cell != null and cell == portal_cell:
 				_draw_portal(cell)
-			elif workbenches.has(cell):
+				continue
+			if not placed.has(cell):
+				# Eng ko'p uchraydigan holat: bo'sh katak -> faqat decor
+				var deco0 = _decor_at(col, row)
+				if deco0 == "tree" or deco0 == "cactus":
+					_draw_tree(col, row)
+				elif deco0 == "rock":
+					_draw_rock(col, row)
+				elif deco0 == "stump":
+					_draw_stump(cell)
+				elif deco0 == "grasstuft":
+					_draw_grasstuft(cell)
+				elif deco0 != "":
+					_draw_decor(_stable_pick(DECOR[deco0], col, row, 2), col, row)
+				continue
+			if workbenches.has(cell):
 				_draw_workbench(cell)
 			elif furnaces.has(cell):
 				_draw_furnace(cell)
@@ -4646,18 +4674,6 @@ func _draw() -> void:
 				_draw_beacon(cell)
 			elif crops.has(cell) and not use_blocks:
 				_draw_crop(cell)
-			else:
-				var deco = _decor_at(col, row)
-				if deco == "tree" or deco == "cactus":
-					_draw_tree(col, row)
-				elif deco == "rock":
-					_draw_rock(col, row)
-				elif deco == "stump":
-					_draw_stump(cell)
-				elif deco == "grasstuft":
-					_draw_grasstuft(cell)
-				elif deco != "":
-					_draw_decor(_stable_pick(DECOR[deco], col, row, 2), col, row)
 
 	# Agar hali chizilmagan bo'lsa (eng oldinda) — oxirida chizamiz
 	if not player_drawn:
@@ -5686,7 +5702,10 @@ func _draw_portal(cell: Vector2i) -> void:
 		var dh: float = float(PORTAL_FRAME_H) * sc
 		# Pastki qismi katakning yer nuqtasiga tegib tursin
 		var dst_pos := center - Vector2(dw / 2.0, dh - TILE_H / 2.0)
-		draw_texture_rect_region(portal_sheet, Rect2(dst_pos, Vector2(dw, dh)), src)
+		# Personaj/hayvon portal ORQASIDA bo'lsa — daraxt kabi shaffof (soya) bo'ladi
+		var prect := Rect2(dst_pos, Vector2(dw, dh))
+		var pa := _behind_alpha(cell, prect)
+		draw_texture_rect_region(portal_sheet, prect, src, Color(1, 1, 1, pa))
 		return
 
 	# ---- ZAXIRA (rasm topilmasa) ----
