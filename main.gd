@@ -226,7 +226,7 @@ const TERRAIN_V2 := true
 # ---- BALANDLIK (config) ----
 const HEIGHT_LEVELS := 3          # 0..3 diskret terrasa darajasi (kamroq cliff = tezroq)
 const HEIGHT_STEP_PX := 7.0       # har daraja ekranda necha px yuqoriga (HEIGHT_SCREEN_OFFSET)
-const HEIGHT_FLATTEN := 2.4       # >1 -> ko'p yer past/tekis, tepaliklar kamroq (power egri)
+const HEIGHT_FLATTEN := 3.3       # >1 -> ko'p yer TEKIS, tepaliklar KAM (tezroq + tinchroq)
 # Ko'p qatlamli coherent noise chastotalari (katta/o'rta/mayda relyef)
 const LARGE_NOISE_SCALE := 0.010
 const MEDIUM_NOISE_SCALE := 0.030
@@ -629,7 +629,7 @@ const GIVE_STARTER_BUILDINGS := false
 # ---- YOMG'IR ----
 var raining := false
 var rain_drops := []          # har tomchi: {pos, speed, len}
-const RAIN_COUNT := 220       # bir vaqtda nechta tomchi
+const RAIN_COUNT := 110       # bir vaqtda nechta tomchi (kamroq = tezroq)
 var weather_timer := 0.0
 var next_weather_change := 45.0   # necha soniyadan keyin ob-havo o'zgaradi
 var rain_fade := 0.0          # 0..1 — yomg'ir kuchi (silliq boshlanadi/tugaydi)
@@ -753,7 +753,7 @@ const FLASH_TIME := 0.13
 var hit_chips := []
 
 # Obyekt orqasiga o'tilganda shaffoflik darajasi
-const BEHIND_ALPHA := 0.40
+const BEHIND_ALPHA := 0.25   # obyekt orqasida player -> obyekt shaffofroq (player yaxshi ko'rinadi)
 
 
 # =========================================================================
@@ -3476,24 +3476,26 @@ func _draw_player() -> void:
 		var feet_y: float = draw_pos.y + h / 2.0
 		# Suv sathi ~bo'yin/ko'krak: yuqori ~34% (bosh) ko'rinib turadi.
 		var waterline: float = top_y + h * 0.34
-		var body_w: float = w * 0.80
-		# Tanani suv bosadi (yarim shaffof ko'k — tana suv tagida ko'rinib turadi)
-		var wrect := Rect2(draw_pos.x - body_w / 2.0, waterline,
-			body_w, feet_y - waterline)
-		draw_rect(wrect, Color(0.28, 0.55, 0.74, 0.66))
-		# Suv sathi chizig'i (bosh atrofida yorug' halqa)
+		var body_w: float = w * 0.78
+		# Tanani suv bosadi — QATTIQ QUTI EMAS, yumshoq OVAL (suvga singgan ko'rinish)
+		var cxc: float = draw_pos.x
+		var cyc: float = (waterline + feet_y) / 2.0
+		var ex: float = body_w / 2.0
+		var ey: float = (feet_y - waterline) / 2.0
+		var oval := PackedVector2Array()
+		for i in range(20):
+			var ea := TAU * float(i) / 20.0
+			oval.append(Vector2(cxc + cos(ea) * ex, cyc + sin(ea) * ey))
+		draw_colored_polygon(oval, Color(0.30, 0.56, 0.74, 0.52))
+		# Suv sathi chizig'i (bosh atrofida yorug' halqa — sekin pulslaydi)
 		var ripple: float = 0.5 + 0.5 * sin(_beacon_t * 3.0)
 		var rw: float = body_w * (0.95 + 0.3 * ripple)
-		draw_arc(Vector2(draw_pos.x, waterline), rw / 2.0, 0.0, PI, 12,
-			Color(0.88, 0.96, 1.0, 0.45 * (1.0 - ripple * 0.4)), 2.0)
-		# Sath ustidagi ingichka yorug' chiziq
-		draw_line(Vector2(draw_pos.x - body_w / 2.0, waterline),
-			Vector2(draw_pos.x + body_w / 2.0, waterline),
-			Color(0.9, 0.97, 1.0, 0.35), 1.0)
+		draw_arc(Vector2(cxc, waterline), rw / 2.0, 0.0, PI, 14,
+			Color(0.88, 0.96, 1.0, 0.42 * (1.0 - ripple * 0.4)), 1.5)
 		# Kichik pufakchalar
-		draw_circle(Vector2(draw_pos.x - body_w * 0.25, waterline + 5.0), 1.6,
+		draw_circle(Vector2(cxc - body_w * 0.22, waterline + 5.0), 1.5,
 			Color(0.9, 0.97, 1.0, 0.5))
-		draw_circle(Vector2(draw_pos.x + body_w * 0.22, waterline + 9.0), 1.2,
+		draw_circle(Vector2(cxc + body_w * 0.20, waterline + 9.0), 1.1,
 			Color(0.9, 0.97, 1.0, 0.4))
 
 
