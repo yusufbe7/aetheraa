@@ -3463,19 +3463,20 @@ func _draw_player() -> void:
 	# Sakraganda soya joyida qoladi (personaj havoda). Suvda soya chizilmaydi.
 	var day: float = _daylight()
 	if day > 0.02 and not in_water:
+		# OYOQ OSTIDA yumshoq oval soya (daraxt soyasi kabi — yerga tegib turadi).
+		# (Eski usul butun 460px sprite'ni egib chizardi -> katta personajда
+		#  soya suzib ketardi. Endi doim oyoq ostida, toza.)
 		var shear: float = _sun_shear()
-		# Sakraganda soya kichrayadi (uzoqlashgandek)
-		var jshrink: float = clampf(1.0 - jump_z * 0.012, 0.55, 1.0)
-		var sw: float = w * jshrink
-		var sh: float = h * jshrink
-		var m := Transform2D(Vector2(1.0, 0.0),
-			Vector2(shear, SHADOW_SQUASH),
-			player.position + Vector2(0.0, 3.0 - plift))
-		draw_set_transform_matrix(m)
-		# Personaj sprite'ining o'zini qora qilib chizamiz
-		draw_texture_rect(tex, Rect2(Vector2(-sw / 2.0, -sh), Vector2(sw, sh)),
-			false, Color(0.0, 0.0, 0.0, SHADOW_ALPHA * day * 0.85))
-		draw_set_transform_matrix(Transform2D.IDENTITY)
+		var jshrink: float = clampf(1.0 - jump_z * 0.012, 0.5, 1.0)
+		var scx: float = player.position.x + shear * 6.0     # quyosh yo'nalishi bo'yicha siljish
+		var scy: float = player.position.y + 2.0 - plift     # oyoq ostida (balandlikka mos)
+		var ex: float = w * 0.42 * jshrink
+		var ey: float = w * 0.17 * jshrink
+		var pts := PackedVector2Array()
+		for i in range(16):
+			var ea := TAU * float(i) / 16.0
+			pts.append(Vector2(scx + cos(ea) * ex, scy + sin(ea) * ey))
+		draw_colored_polygon(pts, Color(0.0, 0.0, 0.0, SHADOW_ALPHA * day * 0.9))
 
 	if spr.flip_h:
 		# FLIP + bir oz kattaroq personaj.
