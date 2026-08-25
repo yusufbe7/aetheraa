@@ -1903,7 +1903,7 @@ const DEEP_WATER_ALPHA := 0.96         # chuqur — deyarli to'liq ko'k
 const WATER_SHALLOW_MOD := Color(0.42, 0.75, 0.82)   # sayoz — och teal
 const WATER_DEEP_MOD := Color(0.13, 0.40, 0.64)      # chuqur — to'q moviy
 # Jonli to'lqin (yumshoq piksel shimmer — kuchli emas)
-const WATER_WAVE_SPEED := 1.8    # to'lqin tezligi
+const WATER_WAVE_SPEED := 2.4    # to'lqin (yuguruvchi crest) tezligi
 const WATER_WAVE_AMP := 0.05     # yorug'lik tebranishi (kichik = yumshoq)
 # Animatsion suv kadrlari (water_00..07, 256x256, borderli romb)
 const WATER_DIR := "res://assets/water/"
@@ -1916,7 +1916,7 @@ var water_frames := []
 # harakat qo'shadi. WATER_FX_ENABLED = false -> avvalgi jim tile suv.
 const WATER_FX_ENABLED := true
 const WATER_DEPTH_TINT_MAX := 0.42   # chuqur suv qanchalik to'q ko'k bo'ladi (0..1)
-const WATER_WAVE_SPEED := 2.4        # yuguruvchi to'lqin (crest) tezligi
+# WATER_WAVE_SPEED yuqorida (1906-qator) allaqachon bor — shuni ishlatamiz.
 const WATER_WAVE_FREQ := 0.075       # to'lqinlar zichligi (kichik=kengroq to'lqin)
 const WATER_FOAM_COL := Color(0.93, 0.98, 1.0)   # qirg'oq ko'pigi
 const WATER_CREST_COL := Color(0.78, 0.93, 1.0)  # to'lqin cho'qqisi yorug'i
