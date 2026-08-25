@@ -106,11 +106,11 @@ const RARE_TREE_CHANCE := 0.015 # 1.5% — faqat kamdan-kam chiqadigan daraxt
 # Ichki nom eski kod bilan bir xil qoldi (biome tanlash + drop shu nomlarga
 # bog'liq), faqat KO'RINISH yangi animatsion paketga almashtirildi.
 var TREE_DEFS := [
-	["tree_03",    76.0, 64,  64, "tree_green"],      # yashil bargli (animatsion)   — yashil biome
-	["tree_rare",  78.0, 64,  64, "tree_autumn"],     # kuzgi kamyob (animatsion)    — yashil biome
+	["tree_03",   102.0, 64,  64, "tree_green"],      # yashil bargli (animatsion)   — yashil biome
+	["tree_rare", 104.0, 64,  64, "tree_autumn"],     # kuzgi kamyob (animatsion)    — yashil biome
 	["tree_05",    40.0,  0,   0, "tree_05"],          # KAKTUS (statik)              — qum biome
 	["tree_09",    70.0,  0,   0, "tree_09"],          # PALMA (statik)               — qum biome
-	["tree_snow1", 76.0, 64,  64, "tree_snow"],       # qorli bargli (animatsion)    — qor biome
+	["tree_snow1",102.0, 64,  64, "tree_snow"],       # qorli bargli (animatsion)    — qor biome
 ]
 var _tree_data := []
 
@@ -224,9 +224,9 @@ var _elev_cache := {}
 const TERRAIN_V2 := true
 
 # ---- BALANDLIK (config) ----
-const HEIGHT_LEVELS := 4          # 0..4 diskret terrasa darajasi
-const HEIGHT_STEP_PX := 6.5       # har daraja ekranda necha px yuqoriga (HEIGHT_SCREEN_OFFSET)
-const HEIGHT_FLATTEN := 1.9       # >1 -> ko'p yer past/tekis, tepaliklar kamroq (power egri)
+const HEIGHT_LEVELS := 3          # 0..3 diskret terrasa darajasi (kamroq cliff = tezroq)
+const HEIGHT_STEP_PX := 7.0       # har daraja ekranda necha px yuqoriga (HEIGHT_SCREEN_OFFSET)
+const HEIGHT_FLATTEN := 2.4       # >1 -> ko'p yer past/tekis, tepaliklar kamroq (power egri)
 # Ko'p qatlamli coherent noise chastotalari (katta/o'rta/mayda relyef)
 const LARGE_NOISE_SCALE := 0.010
 const MEDIUM_NOISE_SCALE := 0.030
@@ -1009,7 +1009,6 @@ func _ready() -> void:
 	# ---- FPS ni MAKSIMAL qilamiz ----
 	# vsync o'chiriladi + kadr chegarasi olib tashlanadi (0 = cheksiz).
 	Engine.max_fps = 0
-	Engine.physics_ticks_per_second = 120
 	DisplayServer.window_set_vsync_mode(DisplayServer.VSYNC_DISABLED)
 
 	height_noise.seed = WORLD_SEED
@@ -2363,16 +2362,9 @@ func _draw_elev_cliff(col: int, row: int) -> void:
 # Poligonlar bir-birini yopadi -> orada shaffof "yoriq" qolmaydi.
 func _draw_cliff_face(tl: Vector2, tr: Vector2, br: Vector2, bl: Vector2,
 		dirt: Color) -> void:
-	# 1) Butun yuza — tuproq
+	# TEZLIK uchun: bitta tuproq poligoni + bitta o't labi chizig'i (yoriqsiz).
 	draw_colored_polygon(PackedVector2Array([tl, tr, br, bl]), dirt)
-	# 2) Pastki ~45% — tosh (to'qroq, ildiz/qoya)
-	var ml := tl.lerp(bl, 0.55)
-	var mr := tr.lerp(br, 0.55)
-	draw_colored_polygon(PackedVector2Array([ml, mr, br, bl]), CLIFF_STONE)
-	# 3) Tepa lab — yorug' o't chizig'i (usti o't ekanini bildiradi)
-	var gl := tl.lerp(bl, 0.14)
-	var gr2 := tr.lerp(br, 0.14)
-	draw_colored_polygon(PackedVector2Array([tl, tr, gr2, gl]), CLIFF_GRASS_LIP)
+	draw_line(tl, tr, CLIFF_GRASS_LIP, 1.5)   # tepa lab — usti o't
 
 
 # TERRASA balandlik tayli (height_0/1/2) — o't usti + tuproq yon bloki.
@@ -3158,8 +3150,9 @@ func _draw_tree(col: int, row: int) -> void:
 	var my_max_h: float = float(info.get("max_h", TREE_MAX_HEIGHT))
 	# Barqaror o'lcham farqi (0.85..1.12) — daraxtlar bir xil bo'yda bo'lmaydi
 	var tvar := 0.85 + _cell_rand(col, row, 33) * 0.27
+	# Cap 1.8 -> animatsion daraxtlar (64px) o'yinda kattaroq (playerdan baland)
 	var draw_scale: float = minf(
-		1.0,
+		1.8,
 		my_max_h / float(fh)
 	) * tvar
 
@@ -4341,7 +4334,7 @@ func _draw_tree_shadow(col: int, row: int) -> void:
 	var fh := float(info["fh"])
 	var fw := float(info["fw"])
 	var my_max_h: float = float(info.get("max_h", TREE_MAX_HEIGHT))
-	var s := minf(1.0, my_max_h / fh) * (0.85 + _cell_rand(col, row, 33) * 0.27)
+	var s := minf(1.8, my_max_h / fh) * (0.85 + _cell_rand(col, row, 33) * 0.27)
 	var base := _shadow_base(col, row)
 	base.x += (_cell_rand(col, row, 31) - 0.5) * TREE_JITTER_X
 	base.y += (_cell_rand(col, row, 32) - 0.5) * TREE_JITTER_Y
