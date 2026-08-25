@@ -223,6 +223,16 @@ var _elev_cache := {}
 # =========================================================================
 const TERRAIN_V2 := true
 
+# ---- YER KESH QATLAMI (FPS) ----
+# Yer (tayl+cliff+suv) har kadr emas, faqat vaqti-vaqti bilan qayta chiziladi.
+# Godot CanvasItem chizilgan buyruqlarni keshlaydi -> kamera surilganda ular
+# transform bilan siljiydi, og'ir GDScript sikli qayta ishlamaydi -> FPS oshadi.
+# GROUND_CACHE = false qilsangiz yer avvalgidek har kadr chiziladi.
+const GROUND_CACHE := true
+const GROUND_REDRAW_INTERVAL := 0.12   # yer qatlami necha sekundda yangilanadi
+var ground_layer = null
+var _ground_redraw_t := 0.0
+
 # ---- BALANDLIK (config) ----
 const HEIGHT_LEVELS := 3          # 0..3 diskret terrasa darajasi (kamroq cliff = tezroq)
 const HEIGHT_STEP_PX := 7.0       # har daraja ekranda necha px yuqoriga (HEIGHT_SCREEN_OFFSET)
@@ -1371,6 +1381,13 @@ func _ready() -> void:
 	if rain_player == null:
 		push_warning("Yomg'ir ovozi topilmadi: " + SFX_DIR + "rain.(ogg/mp3/wav)")
 
+	# YER KESH QATLAMI — o'yin dunyosi ortida (show_behind_parent) chiziladi.
+	if GROUND_CACHE:
+		ground_layer = GroundLayer.new()
+		ground_layer.world = self
+		ground_layer.show_behind_parent = true
+		add_child(ground_layer)
+
 	# HUD (ekran ustidagi panel) — kamera bilan harakatlanmaydi
 	hud = CanvasLayer.new()
 	hud.layer = 10
@@ -2060,7 +2077,7 @@ func _water_tile_for(col: int, row: int) -> String:
 
 # Tile suv USTIGA jonli effekt: chuqurlik ko'k tinti + yuguruvchi to'lqin
 # cho'qqisi (shimmer) + quruqlik chetlarida foam. Tile borderlari saqlanadi.
-func _draw_water_fx(col: int, row: int, gc: Vector2) -> void:
+func _draw_water_fx(ci: CanvasItem, col: int, row: int, gc: Vector2) -> void:
 	if not WATER_FX_ENABLED:
 		return
 	var top := gc + Vector2(0.0, -TILE_H / 2.0)
@@ -2074,7 +2091,7 @@ func _draw_water_fx(col: int, row: int, gc: Vector2) -> void:
 	if depth01 > 0.02:
 		var tint := WATER_DEEP_MOD
 		tint.a = depth01 * WATER_DEPTH_TINT_MAX
-		draw_colored_polygon(PackedVector2Array([top, right, bottom, left]), tint)
+		ci.draw_colored_polygon(PackedVector2Array([top, right, bottom, left]), tint)
 
 	# 2) YUGURUVCHI TO'LQIN — dunyo bo'ylab diagonal yorug' cho'qqilar suzadi
 	var wave := sin((gc.x * WATER_WAVE_FREQ + gc.y * (WATER_WAVE_FREQ * 1.7))
@@ -2084,20 +2101,20 @@ func _draw_water_fx(col: int, row: int, gc: Vector2) -> void:
 		var hl := WATER_CREST_COL
 		hl.a = 0.14 + b * 0.24
 		# yuqori diagonal bo'ylab ingichka yorug' chiziq
-		draw_line(left.lerp(top, 0.5), top.lerp(right, 0.5), hl, 1.0)
+		ci.draw_line(left.lerp(top, 0.5), top.lerp(right, 0.5), hl, 1.0)
 
 	# 3) QIRG'OQ FOAM — quruqlik qo'shni bo'lgan chetlarda (sekin pulslaydi)
 	var pulse := 0.55 + 0.45 * sin(_anim_timer * 2.2 + gc.x * 0.05 + gc.y * 0.05)
 	var foam := WATER_FOAM_COL
 	foam.a = 0.5 * pulse
 	if _ground_type(col + 1, row) != "water":
-		draw_line(right, bottom, foam, 1.5)     # SE chet
+		ci.draw_line(right, bottom, foam, 1.5)     # SE chet
 	if _ground_type(col, row + 1) != "water":
-		draw_line(bottom, left, foam, 1.5)      # SW chet
+		ci.draw_line(bottom, left, foam, 1.5)      # SW chet
 	if _ground_type(col - 1, row) != "water":
-		draw_line(left, top, foam, 1.5)         # NW chet
+		ci.draw_line(left, top, foam, 1.5)         # NW chet
 	if _ground_type(col, row - 1) != "water":
-		draw_line(top, right, foam, 1.5)        # NE chet
+		ci.draw_line(top, right, foam, 1.5)        # NE chet
 
 
 func _decor_type(col: int, row: int, ground: String) -> String:
@@ -2244,7 +2261,7 @@ func _cliff_mask(col: int, row: int) -> int:
 const BLOCK_BASE_Y := 63.0        # oddiy blok pastki uchi (rasm ichida, px)
 const BLOCK_BASE_Y_TALL := 83.0   # baland blok pastki uchi
 
-func _draw_block(tex: Texture2D, col: int, row: int, sink: float = 0.0,
+func _draw_block(ci: CanvasItem, tex: Texture2D, col: int, row: int, sink: float = 0.0,
 		tall: bool = false) -> void:
 	if tex == null:
 		return
@@ -2254,7 +2271,7 @@ func _draw_block(tex: Texture2D, col: int, row: int, sink: float = 0.0,
 	var c := grid_to_local(col, row)
 	# Blokning pastki uchi katak markazidan TILE_H/2 pastda tursin
 	var pos := Vector2(c.x - tw / 2.0, c.y + TILE_H / 2.0 - base + sink)
-	draw_texture_rect(tex, Rect2(pos, Vector2(tw, th)), false)
+	ci.draw_texture_rect(tex, Rect2(pos, Vector2(tw, th)), false)
 
 
 # Yer turi -> blok nomi
@@ -2270,7 +2287,7 @@ func _block_name_for(gr: String, cell: Vector2i) -> String:
 			return "block_grass"
 
 
-func _draw_cliff_cached(col: int, row: int) -> void:
+func _draw_cliff_cached(ci: CanvasItem, col: int, row: int) -> void:
 	var key := Vector2i(col, row)
 	var m: int
 	if _cliff_cache.has(key):
@@ -2293,10 +2310,10 @@ func _draw_cliff_cached(col: int, row: int) -> void:
 	var ll := c + Vector2(-TILE_W / 2.0, 0.0)
 	var down := Vector2(0.0, CLIFF_DEPTH)
 	if (m & 1) != 0:
-		draw_colored_polygon(PackedVector2Array([b, rr, rr + down, b + down]),
+		ci.draw_colored_polygon(PackedVector2Array([b, rr, rr + down, b + down]),
 			Color(0.50, 0.37, 0.24))
 	if (m & 2) != 0:
-		draw_colored_polygon(PackedVector2Array([ll, b, b + down, ll + down]),
+		ci.draw_colored_polygon(PackedVector2Array([ll, b, b + down, ll + down]),
 			Color(0.38, 0.28, 0.17))
 
 
@@ -2330,7 +2347,7 @@ func _draw_cliff(col: int, row: int) -> void:
 # qo'shni sathigacha. block teksturasi emas, bo'yalgan dirt yuza (yoriqsiz).
 # TERRAIN_V2 cliff: ko'tarilgan katakning OLD (kameraga qaragan) yon devorlarini
 # PASTROQ qo'shnigacha TO'LIQ (yoriqsiz) to'ldiradi. Layer: o't labi -> tuproq -> tosh.
-func _draw_elev_cliff(col: int, row: int) -> void:
+func _draw_elev_cliff(ci: CanvasItem, col: int, row: int) -> void:
 	var lift := _lift_px(col, row)
 	if lift <= 0.0:
 		return
@@ -2350,27 +2367,27 @@ func _draw_elev_cliff(col: int, row: int) -> void:
 	var nb_se := maxf(_lift_px(col + 1, row), 0.0)
 	if nb_se < lift - 0.01:
 		var d := Vector2(0.0, -nb_se)
-		_draw_cliff_face(b + up, rr + up, rr + d, b + d, dirt)
+		_draw_cliff_face(ci, b + up, rr + up, rr + d, b + d, dirt)
 	# SW yuza (chap)
 	var nb_sw := maxf(_lift_px(col, row + 1), 0.0)
 	if nb_sw < lift - 0.01:
 		var d2 := Vector2(0.0, -nb_sw)
-		_draw_cliff_face(ll + up, b + up, b + d2, ll + d2, dirt)
+		_draw_cliff_face(ci, ll + up, b + up, b + d2, ll + d2, dirt)
 
 
 # Bitta cliff yon yuzasi: to'liq tuproq + pastki qism tosh + tepa o't labi.
 # Poligonlar bir-birini yopadi -> orada shaffof "yoriq" qolmaydi.
-func _draw_cliff_face(tl: Vector2, tr: Vector2, br: Vector2, bl: Vector2,
+func _draw_cliff_face(ci: CanvasItem, tl: Vector2, tr: Vector2, br: Vector2, bl: Vector2,
 		dirt: Color) -> void:
 	# TEZLIK uchun: bitta tuproq poligoni + bitta o't labi chizig'i (yoriqsiz).
-	draw_colored_polygon(PackedVector2Array([tl, tr, br, bl]), dirt)
-	draw_line(tl, tr, CLIFF_GRASS_LIP, 1.5)   # tepa lab — usti o't
+	ci.draw_colored_polygon(PackedVector2Array([tl, tr, br, bl]), dirt)
+	ci.draw_line(tl, tr, CLIFF_GRASS_LIP, 1.5)   # tepa lab — usti o't
 
 
 # TERRASA balandlik tayli (height_0/1/2) — o't usti + tuproq yon bloki.
 # Blok BAZASI (rasm ichida ~(64,91)) katakning pastki uchiga tushadi;
 # yuqori darajalarда o't usti avtomatik ko'tariladi (art ichida).
-func _draw_height_tile(col: int, row: int, level: int) -> void:
+func _draw_height_tile(ci: CanvasItem, col: int, row: int, level: int) -> void:
 	var tex: Texture2D = height_tex.get("height_" + str(level), null)
 	if tex == null:
 		# Zaxira: mavjud eng yaqin daraja
@@ -2380,7 +2397,7 @@ func _draw_height_tile(col: int, row: int, level: int) -> void:
 	var s := HEIGHT_TILE_SCALE
 	var cell_bottom := grid_to_local(col, row) + Vector2(0.0, TILE_H / 2.0)
 	var pos := cell_bottom - Vector2(64.0, 91.0) * s
-	draw_texture_rect(tex, Rect2(pos, Vector2(128.0, 128.0) * s), false)
+	ci.draw_texture_rect(tex, Rect2(pos, Vector2(128.0, 128.0) * s), false)
 
 
 func _draw_rock(col: int, row: int) -> void:
@@ -2737,14 +2754,14 @@ func _draw_kiln(cell: Vector2i) -> void:
 		building_flips.get(cell, false))
 
 # Tosh maydon (stonepath.png) — yo'lak kabi yerga YASSI yotadi
-func _draw_plaza(cell: Vector2i) -> void:
+func _draw_plaza(ci: CanvasItem, cell: Vector2i) -> void:
 	if plaza_texture == null:
 		return
 	var center := grid_to_local(cell.x, cell.y)
 	# Rasm bitta katakni to'liq qoplaydi (chetlari qo'shnisi bilan tutashadi)
 	var dw := TILE_W * 1.14
 	var dh := TILE_H * 1.14
-	draw_texture_rect(plaza_texture,
+	ci.draw_texture_rect(plaza_texture,
 		Rect2(center - Vector2(dw / 2.0, dh / 2.0), Vector2(dw, dh)), false)
 
 # Yo'lak — yassi, yer ustiga chiziladi (bino emas, ustidan yuriladi)
@@ -2831,7 +2848,7 @@ func _draw_crop(cell: Vector2i) -> void:
 			draw_circle(base - Vector2(0.0, h), 2.6, Color(0.96, 0.82, 0.32))
 
 
-func _draw_path(cell: Vector2i) -> void:
+func _draw_path(ci: CanvasItem, cell: Vector2i) -> void:
 	if path_texture == null:
 		return
 	var center := grid_to_local(cell.x, cell.y)
@@ -2845,7 +2862,7 @@ func _draw_path(cell: Vector2i) -> void:
 	var dw := TILE_W * 1.12
 	var dh := TILE_H * 1.12
 	var pos := center - Vector2(dw / 2.0, dh / 2.0)
-	draw_texture_rect(path_texture, Rect2(pos, Vector2(dw, dh)), false)
+	ci.draw_texture_rect(path_texture, Rect2(pos, Vector2(dw, dh)), false)
 
 # Kristall ustun (beacon) — sekin tepaga-pastga suzadi.
 # Sheet bo'lsa: suzish va kristall pulsi rasmning o'zida (Blender'da) tayyor,
@@ -4417,17 +4434,7 @@ func _visible_range() -> Array:
 		min_r = min(min_r, g.y); max_r = max(max_r, g.y)
 	return [min_c-2, max_c+3, min_r-2, max_r+3]
 
-func _draw() -> void:
-	var rng = _visible_range()
-	var c0: int = rng[0]; var c1: int = rng[1]
-	var r0: int = rng[2]; var r1: int = rng[3]
-
-	# Personaj chuqurligi (col+row)
-	var p_depth = 2147483647   # juda katta = eng oxirida (agar player yo'q bo'lsa)
-	if player != null:
-		var pc = local_to_grid(player.position)
-		p_depth = pc.x + pc.y
-
+func _render_ground(ci: CanvasItem, c0: int, c1: int, r0: int, r1: int) -> void:
 	# 1) YER (fon)
 	for s in range(r0 + c0, r1 + c1 + 1):
 		# TEZLIK: col ni s ga qarab cheklaymiz -> behuda iteratsiya yo'q
@@ -4439,7 +4446,7 @@ func _draw() -> void:
 			var gr := _ground_type(col, row)
 			if use_blocks and gr == "water" and block_tex.has("block_water"):
 				# --- SUV BLOKI: yerdan PASTROQ (cho'kkan ko'l) ---
-				_draw_block(block_tex["block_water"], col, row)
+				_draw_block(ci, block_tex["block_water"], col, row)
 			elif use_blocks and gr != "water":
 				# --- 3D BLOK (qalinlikka ega) + TERRASA BALANDLIGI ---
 				var lvl := _elevation(col, row)
@@ -4456,15 +4463,15 @@ func _draw() -> void:
 				var dirt = block_tex.get("block_dirt", null)
 				var kk := lvl - 1
 				while kk >= floor_lvl:
-					_draw_block(dirt, col, row, -(float(kk) * LEVEL_LIFT))
+					_draw_block(ci, dirt, col, row, -(float(kk) * LEVEL_LIFT))
 					kk -= 1
 
 				# Ust yuzasi (biom bloki), ko'tarilgan holda
-				_draw_block(block_tex.get(bname, null), col, row, -lift)
+				_draw_block(ci, block_tex.get(bname, null), col, row, -lift)
 				# Ekin -> bug'doy bloki yer ustiga (o'sha balandlikda)
 				if crops.has(gcell):
 					var st: int = clampi(int(crops[gcell]["stage"]), 0, 3)
-					_draw_block(block_tex.get("block_wheat_" + str(st), null), col, row, -lift)
+					_draw_block(ci, block_tex.get("block_wheat_" + str(st), null), col, row, -lift)
 			else:
 				# --- Zaxira: yassi tayl (suv yoki bloklar topilmasa) ---
 				var gtex: Texture2D
@@ -4490,7 +4497,7 @@ func _draw() -> void:
 						# Suv ostidagi tag (qum) — qisman ko'rinib turadi
 						var seabed := _get_tex(SAND_TILE)
 						if seabed != null:
-							draw_texture(seabed, gc - Vector2(
+							ci.draw_texture(seabed, gc - Vector2(
 								float(seabed.get_width()) * 0.5,
 								float(seabed.get_height()) * 0.5),
 								Color(0.16, 0.40, 0.52))
@@ -4504,7 +4511,7 @@ func _draw() -> void:
 							var wtex: Texture2D = water_frames[fi]
 							var ws := WATER_TILE_SCALE
 							var dk := lerpf(1.0, 0.72, depth01)   # chuqur -> to'qroq
-							draw_texture_rect(wtex,
+							ci.draw_texture_rect(wtex,
 								Rect2(gc - Vector2(128.0, 128.0) * ws, Vector2(256.0, 256.0) * ws),
 								false, Color(dk, dk, dk, walpha))
 						else:
@@ -4512,7 +4519,7 @@ func _draw() -> void:
 							var wcol := WATER_SHALLOW_MOD.lerp(WATER_DEEP_MOD, depth01)
 							wcol.a = walpha
 							var e := 1.0
-							draw_colored_polygon(PackedVector2Array([
+							ci.draw_colored_polygon(PackedVector2Array([
 								gc + Vector2(0.0, -TILE_H / 2.0 - e),
 								gc + Vector2(TILE_W / 2.0 + e, 0.0),
 								gc + Vector2(0.0, TILE_H / 2.0 + e),
@@ -4520,28 +4527,45 @@ func _draw() -> void:
 							]), wcol)
 					elif USE_HEIGHT_TILES and gr == "grass" and not tilled_cells.has(gcell):
 						# GRASS biom — terrasa balandlik bloki (height_0/1/2)
-						_draw_height_tile(col, row, _elevation(col, row))
+						_draw_height_tile(ci, col, row, _elevation(col, row))
 					elif TERRAIN_V2 and gr != "water":
 						# TERRAIN_V2: quruqlikni balandlik darajasiga KO'TARIB chizamiz,
 						# ochilgan yon devorni cliff bilan to'ldiramiz (yoriqsiz).
 						var l2 := _lift_px(col, row)
 						if l2 > 0.0:
-							_draw_elev_cliff(col, row)                     # yon devor (past qo'shnigacha)
-							draw_texture(gtex, gc - half - Vector2(0.0, l2))  # ust — ko'tarilgan
+							_draw_elev_cliff(ci, col, row)                     # yon devor (past qo'shnigacha)
+							ci.draw_texture(gtex, gc - half - Vector2(0.0, l2))  # ust — ko'tarilgan
 						else:
-							draw_texture(gtex, gc - half)
-							_draw_cliff_cached(col, row)                   # suv cheti (agar bor bo'lsa)
+							ci.draw_texture(gtex, gc - half)
+							_draw_cliff_cached(ci, col, row)                   # suv cheti (agar bor bo'lsa)
 					else:
 						# Boshqa biom yer tayli (balandliksiz, tekis)
-						draw_texture(gtex, gc - half)
+						ci.draw_texture(gtex, gc - half)
 						if not use_blocks:
-							_draw_cliff_cached(col, row)    # tekis qirg'oq (suv cheti)
+							_draw_cliff_cached(ci, col, row)    # tekis qirg'oq (suv cheti)
 						if gr == "water":
-							_draw_water_fx(col, row, gc)    # jonli suv: chuqurlik+to'lqin+foam
+							_draw_water_fx(ci, col, row, gc)    # jonli suv: chuqurlik+to'lqin+foam
 			if paths.has(gcell):
-				_draw_path(gcell)
+				_draw_path(ci, gcell)
 			if plazas.has(gcell):
-				_draw_plaza(gcell)
+				_draw_plaza(ci, gcell)
+
+
+func _draw() -> void:
+	var rng = _visible_range()
+	var c0: int = rng[0]; var c1: int = rng[1]
+	var r0: int = rng[2]; var r1: int = rng[3]
+
+	# Personaj chuqurligi (col+row)
+	var p_depth = 2147483647   # juda katta = eng oxirida (agar player yo'q bo'lsa)
+	if player != null:
+		var pc = local_to_grid(player.position)
+		p_depth = pc.x + pc.y
+
+	# 1) YER — GROUND_CACHE bo'lsa kesh qatlamda (GroundLayer) chiziladi.
+	#         Aks holda (fallback) shu yerda chiziladi.
+	if not GROUND_CACHE:
+		_render_ground(self, c0, c1, r0, r1)
 
 	# TEZLIK: barcha qo'yilgan qurilmalarni BITTA dict'ga yig'amiz. Shunda
 	# har katakda 15 ta .has() o'rniga bitta .has() bo'ladi (FPS uchun muhim).
@@ -4757,6 +4781,14 @@ func _process(delta: float) -> void:
 	_anim_timer += delta
 	_beacon_t += delta
 	_portal_t += delta
+
+	# YER KESH QATLAMINI vaqti-vaqti bilan yangilaymiz (suv animatsiyasi + surilish).
+	# Har kadr emas -> og'ir yer sikli kamdan-kam ishlaydi -> FPS oshadi.
+	if GROUND_CACHE and ground_layer != null:
+		_ground_redraw_t += delta
+		if _ground_redraw_t >= GROUND_REDRAW_INTERVAL:
+			_ground_redraw_t = 0.0
+			ground_layer.queue_redraw()
 
 	# PORTAL — personaj portal ustiga chiqsa boshqa olamga o'tadi
 	if PORTAL_ENABLED and player != null:
@@ -6388,6 +6420,23 @@ func _update_wood(delta: float) -> void:
 	#  HUD — jon (yuraklar), quvvat (yashil chiziq), hotbar (8 katak)
 	#  Ekran ustida chiziladi, kamera bilan harakatlanmaydi.
 	# =========================================================================
+class GroundLayer extends Node2D:
+	# Yer keshi: world._render_ground'ni O'ZINING canvasiga chizadi.
+	# Faqat _process'dagi taymer queue_redraw chaqirganda qayta ishlaydi.
+	var world: AetheraWorld = null
+	const MARGIN := 12
+
+	func _draw() -> void:
+		if world == null:
+			return
+		var rng = world._visible_range()
+		var c0: int = int(rng[0]) - MARGIN
+		var c1: int = int(rng[1]) + MARGIN
+		var r0: int = int(rng[2]) - MARGIN
+		var r1: int = int(rng[3]) + MARGIN
+		world._render_ground(self, c0, c1, r0, r1)
+
+
 class HudDraw extends Control:
 	var world = null
 
