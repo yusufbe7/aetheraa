@@ -1911,6 +1911,16 @@ const WATER_TILE_SCALE := 0.15   # 256px romb -> o'yin taylига (romb ~35px)
 const WATER_ANIM_FPS := 6.0      # suv animatsiyasi tezligi
 var water_frames := []
 
+# ---- SUV FX (tile suv ustiga: chuqurlik tinti + to'lqin shimmer + qirg'oq foam) ----
+# Mavjud tile_104..113 suvni saqlaydi (borderlari ko'rinadi), ustiga jonli
+# harakat qo'shadi. WATER_FX_ENABLED = false -> avvalgi jim tile suv.
+const WATER_FX_ENABLED := true
+const WATER_DEPTH_TINT_MAX := 0.42   # chuqur suv qanchalik to'q ko'k bo'ladi (0..1)
+const WATER_WAVE_SPEED := 2.4        # yuguruvchi to'lqin (crest) tezligi
+const WATER_WAVE_FREQ := 0.075       # to'lqinlar zichligi (kichik=kengroq to'lqin)
+const WATER_FOAM_COL := Color(0.93, 0.98, 1.0)   # qirg'oq ko'pigi
+const WATER_CREST_COL := Color(0.78, 0.93, 1.0)  # to'lqin cho'qqisi yorug'i
+
 # Cho'l qancha ko'p bo'lsin: KICHIKROQ son = KO'PROQ cho'l
 #   0.28 (kam)  ...  0.05 (juda ko'p)
 const SAND_LEVEL := 0.18   # (eski — endi ishlatilmaydi)
@@ -2042,6 +2052,48 @@ func _water_tile_for(col: int, row: int) -> String:
 		return str(WATER_TILES[m])
 	# Uch tomonli / qarama-qarshi juftlik -> to'rt tomonli tayl
 	return WATER_FALLBACK
+
+
+# Tile suv USTIGA jonli effekt: chuqurlik ko'k tinti + yuguruvchi to'lqin
+# cho'qqisi (shimmer) + quruqlik chetlarida foam. Tile borderlari saqlanadi.
+func _draw_water_fx(col: int, row: int, gc: Vector2) -> void:
+	if not WATER_FX_ENABLED:
+		return
+	var top := gc + Vector2(0.0, -TILE_H / 2.0)
+	var right := gc + Vector2(TILE_W / 2.0, 0.0)
+	var bottom := gc + Vector2(0.0, TILE_H / 2.0)
+	var left := gc + Vector2(-TILE_W / 2.0, 0.0)
+
+	# 1) CHUQURLIK — pastroq joy to'qroq ko'k (sayoz joy tileni ko'proq ko'rsatadi)
+	var h := height_noise.get_noise_2d(col, row)
+	var depth01 := clampf((WATER_LEVEL - h) / WATER_DEPTH_RANGE, 0.0, 1.0)
+	if depth01 > 0.02:
+		var tint := WATER_DEEP_MOD
+		tint.a = depth01 * WATER_DEPTH_TINT_MAX
+		draw_colored_polygon(PackedVector2Array([top, right, bottom, left]), tint)
+
+	# 2) YUGURUVCHI TO'LQIN — dunyo bo'ylab diagonal yorug' cho'qqilar suzadi
+	var wave := sin((gc.x * WATER_WAVE_FREQ + gc.y * (WATER_WAVE_FREQ * 1.7))
+		- _anim_timer * WATER_WAVE_SPEED)
+	if wave > 0.55:
+		var b := (wave - 0.55) / 0.45          # 0..1
+		var hl := WATER_CREST_COL
+		hl.a = 0.14 + b * 0.24
+		# yuqori diagonal bo'ylab ingichka yorug' chiziq
+		draw_line(left.lerp(top, 0.5), top.lerp(right, 0.5), hl, 1.0)
+
+	# 3) QIRG'OQ FOAM — quruqlik qo'shni bo'lgan chetlarda (sekin pulslaydi)
+	var pulse := 0.55 + 0.45 * sin(_anim_timer * 2.2 + gc.x * 0.05 + gc.y * 0.05)
+	var foam := WATER_FOAM_COL
+	foam.a = 0.5 * pulse
+	if _ground_type(col + 1, row) != "water":
+		draw_line(right, bottom, foam, 1.5)     # SE chet
+	if _ground_type(col, row + 1) != "water":
+		draw_line(bottom, left, foam, 1.5)      # SW chet
+	if _ground_type(col - 1, row) != "water":
+		draw_line(left, top, foam, 1.5)         # NW chet
+	if _ground_type(col, row - 1) != "water":
+		draw_line(top, right, foam, 1.5)        # NE chet
 
 
 func _decor_type(col: int, row: int, ground: String) -> String:
@@ -4471,6 +4523,8 @@ func _draw() -> void:
 						draw_texture(gtex, gc - half)
 						if not use_blocks:
 							_draw_cliff_cached(col, row)    # tekis qirg'oq (suv cheti)
+						if gr == "water":
+							_draw_water_fx(col, row, gc)    # jonli suv: chuqurlik+to'lqin+foam
 			if paths.has(gcell):
 				_draw_path(gcell)
 			if plazas.has(gcell):
