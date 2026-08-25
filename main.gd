@@ -233,6 +233,15 @@ const GROUND_REDRAW_INTERVAL := 0.12   # yer qatlami necha sekundda yangilanadi
 var ground_layer = null
 var _ground_redraw_t := 0.0
 
+# ---- KO'RINISHDAGI OBYEKTLAR KESHI (FPS) ----
+# Har kadr ~2000 katakni skanlab daraxt/tosh/bino qidirish o'rniga, ular
+# ro'yxati keshlanadi va faqat ko'rinish siljisa/o'zgarsa qayta quriladi.
+const VIS_MARGIN := 10
+var _vis_objects := []       # [ [Vector2i cell, String kind], ... ] chuqurlik bo'yicha
+var _vis_win := []           # [c0,c1,r0,r1] — ro'yxat qurilgan oyna
+var _vis_dirty := true
+var _vis_rebuild_t := 0.0
+
 # ---- BALANDLIK (config) ----
 const HEIGHT_LEVELS := 3          # 0..3 diskret terrasa darajasi (kamroq cliff = tezroq)
 const HEIGHT_STEP_PX := 7.0       # har daraja ekranda necha px yuqoriga (HEIGHT_SCREEN_OFFSET)
@@ -4435,6 +4444,92 @@ func _visible_range() -> Array:
 		min_r = min(min_r, g.y); max_r = max(max_r, g.y)
 	return [min_c-2, max_c+3, min_r-2, max_r+3]
 
+func _building_kind_at(cell: Vector2i) -> String:
+	if workbenches.has(cell): return "workbench"
+	if furnaces.has(cell): return "furnace"
+	if windmills.has(cell): return "windmill"
+	if magic_tables.has(cell): return "magic_table"
+	if anvils.has(cell): return "anvil"
+	if chests.has(cell): return "chest"
+	if fences.has(cell): return "fence"
+	if bridges.has(cell): return "bridge"
+	if organs.has(cell): return "organ"
+	if cauldrons.has(cell): return "cauldron"
+	if posts.has(cell): return "post"
+	if kilns.has(cell): return "kiln"
+	if beacons.has(cell): return "beacon"
+	if crops.has(cell): return "crop"
+	return ""
+
+
+# Ko'rinishdagi obyektlar ro'yxatini qayta quradi (chuqurlik bo'yicha tartibli).
+func _rebuild_vis_objects(c0: int, c1: int, r0: int, r1: int) -> void:
+	_vis_objects.clear()
+	for s in range(r0 + c0, r1 + c1 + 1):
+		var oA: int = maxi(c0, s - r1)
+		var oB: int = mini(c1, s - r0)
+		for col in range(oA, oB + 1):
+			var row = s - col
+			var cell := Vector2i(col, row)
+			var kind := ""
+			if portal_cell != null and cell == portal_cell:
+				kind = "portal"
+			else:
+				kind = _building_kind_at(cell)
+				if kind == "":
+					var d := _decor_at(col, row)
+					if d != "":
+						kind = d
+			if kind != "":
+				_vis_objects.append([cell, kind])
+
+
+func _draw_shadow_by_kind(cell: Vector2i, kind: String) -> void:
+	match kind:
+		"tree", "cactus": _draw_tree_shadow(cell.x, cell.y)
+		"rock": _draw_rock_shadow(cell.x, cell.y)
+		"stump": _draw_stump_shadow(cell)
+		"workbench": _draw_building_shadow(cell, workbench_texture, workbench_white, WORKBENCH_MAX_HEIGHT, WORKBENCH_MAX_WIDTH)
+		"furnace": _draw_building_shadow(cell, furnace_texture, furnace_white, FURNACE_MAX_HEIGHT, FURNACE_MAX_WIDTH)
+		"windmill": _draw_building_shadow(cell, windmill_texture, windmill_white, WINDMILL_MAX_HEIGHT, WINDMILL_MAX_WIDTH)
+		"magic_table": _draw_building_shadow(cell, magic_table_texture, magic_table_white, MAGIC_TABLE_MAX_HEIGHT, MAGIC_TABLE_MAX_WIDTH)
+		"anvil": _draw_building_shadow(cell, anvil_texture, anvil_white, ANVIL_MAX_HEIGHT, ANVIL_MAX_WIDTH)
+		"chest": _draw_building_shadow(cell, chest_texture, chest_white, CHEST_MAX_HEIGHT, CHEST_MAX_WIDTH)
+		"fence": _draw_building_shadow(cell, fence_texture, fence_white, FENCE_MAX_HEIGHT, FENCE_MAX_WIDTH)
+		"organ": _draw_building_shadow(cell, organ_texture, organ_white, ORGAN_MAX_HEIGHT, ORGAN_MAX_WIDTH)
+		"beacon": _draw_building_shadow(cell, beacon_texture, beacon_white, BEACON_MAX_HEIGHT, BEACON_MAX_WIDTH)
+		"post": _draw_building_shadow(cell, post_texture, post_white, POST_MAX_HEIGHT, POST_MAX_WIDTH)
+		"kiln": _draw_building_shadow(cell, kiln_texture, kiln_white, KILN_MAX_HEIGHT, KILN_MAX_WIDTH)
+
+
+func _draw_object_by_kind(cell: Vector2i, kind: String) -> void:
+	match kind:
+		"portal": _draw_portal(cell)
+		"tree", "cactus": _draw_tree(cell.x, cell.y)
+		"rock": _draw_rock(cell.x, cell.y)
+		"stump": _draw_stump(cell)
+		"grasstuft": _draw_grasstuft(cell)
+		"workbench": _draw_workbench(cell)
+		"furnace": _draw_furnace(cell)
+		"windmill": _draw_windmill(cell)
+		"magic_table": _draw_magic_table(cell)
+		"anvil": _draw_anvil(cell)
+		"chest": _draw_chest(cell)
+		"fence": _draw_fence(cell)
+		"bridge": _draw_bridge(cell)
+		"organ": _draw_organ(cell)
+		"cauldron": _draw_cauldron(cell)
+		"post": _draw_post(cell)
+		"kiln": _draw_kiln(cell)
+		"beacon": _draw_beacon(cell)
+		"crop":
+			if not use_blocks:
+				_draw_crop(cell)
+		_:
+			if DECOR.has(kind):
+				_draw_decor(_stable_pick(DECOR[kind], cell.x, cell.y, 2), cell.x, cell.y)
+
+
 func _render_ground(ci: CanvasItem, c0: int, c1: int, r0: int, r1: int) -> void:
 	# 1) YER (fon)
 	for s in range(r0 + c0, r1 + c1 + 1):
@@ -4568,71 +4663,29 @@ func _draw() -> void:
 	if not GROUND_CACHE:
 		_render_ground(self, c0, c1, r0, r1)
 
-	# TEZLIK: barcha qo'yilgan qurilmalarni BITTA dict'ga yig'amiz. Shunda
-	# har katakda 15 ta .has() o'rniga bitta .has() bo'ladi (FPS uchun muhim).
-	var placed := {}
-	for _bd in [workbenches, furnaces, windmills, magic_tables, anvils, chests,
-			fences, bridges, organs, cauldrons, posts, kilns, beacons, crops]:
-		for _bc in _bd:
-			placed[_bc] = true
+	# vis_objects KESHI: ko'rinishdagi obyektlar ro'yxati. Har kadr 2000 katak
+	# skani o'rniga -> faqat ko'rinish siljisa/o'zgarsa qayta quriladi (FPS).
+	var need_rebuild := _vis_dirty or _vis_win.is_empty()
+	if not need_rebuild:
+		if c0 < int(_vis_win[0]) + 2 or c1 > int(_vis_win[1]) - 2 \
+				or r0 < int(_vis_win[2]) + 2 or r1 > int(_vis_win[3]) - 2:
+			need_rebuild = true
+	if need_rebuild:
+		var wc0 := c0 - VIS_MARGIN
+		var wc1 := c1 + VIS_MARGIN
+		var wr0 := r0 - VIS_MARGIN
+		var wr1 := r1 + VIS_MARGIN
+		_rebuild_vis_objects(wc0, wc1, wr0, wr1)
+		_vis_win = [wc0, wc1, wr0, wr1]
+		_vis_dirty = false
 
-	# 1.5) SOYALAR — yer ustiga, obyektlardan OLDIN chiziladi.
-	# (Aks holda soya boshqa daraxt ustiga tushib qolardi.)
+	# 1.5) SOYALAR — obyektlardan OLDIN, faqat ro'yxatdagilar uchun
 	if Lang.shadows and _daylight() > 0.02:
-		for s in range(r0 + c0, r1 + c1 + 1):
-			var sA: int = maxi(c0, s - r1)
-			var sB: int = mini(c1, s - r0)
-			for col in range(sA, sB + 1):
-				var row = s - col
-				var cell := Vector2i(col, row)
-				if not placed.has(cell):
-					# Eng ko'p uchraydigan holat: bo'sh katak -> faqat decor soyasi
-					var sdeco0 = _decor_at(col, row)
-					if sdeco0 == "tree" or sdeco0 == "cactus":
-						_draw_tree_shadow(col, row)
-					elif sdeco0 == "rock":
-						_draw_rock_shadow(col, row)
-					elif sdeco0 == "stump":
-						_draw_stump_shadow(cell)
-					continue
-				if workbenches.has(cell):
-					_draw_building_shadow(cell, workbench_texture, workbench_white,
-						WORKBENCH_MAX_HEIGHT, WORKBENCH_MAX_WIDTH)
-				elif furnaces.has(cell):
-					_draw_building_shadow(cell, furnace_texture, furnace_white,
-						FURNACE_MAX_HEIGHT, FURNACE_MAX_WIDTH)
-				elif windmills.has(cell):
-					_draw_building_shadow(cell, windmill_texture, windmill_white,
-						WINDMILL_MAX_HEIGHT, WINDMILL_MAX_WIDTH)
-				elif magic_tables.has(cell):
-					_draw_building_shadow(cell, magic_table_texture, magic_table_white,
-						MAGIC_TABLE_MAX_HEIGHT, MAGIC_TABLE_MAX_WIDTH)
-				elif anvils.has(cell):
-					_draw_building_shadow(cell, anvil_texture, anvil_white,
-						ANVIL_MAX_HEIGHT, ANVIL_MAX_WIDTH)
-				elif chests.has(cell):
-					_draw_building_shadow(cell, chest_texture, chest_white,
-						CHEST_MAX_HEIGHT, CHEST_MAX_WIDTH)
-				elif fences.has(cell):
-					_draw_building_shadow(cell, fence_texture, fence_white,
-						FENCE_MAX_HEIGHT, FENCE_MAX_WIDTH)
-				elif organs.has(cell):
-					_draw_building_shadow(cell, organ_texture, organ_white,
-						ORGAN_MAX_HEIGHT, ORGAN_MAX_WIDTH)
-				elif beacons.has(cell):
-					_draw_building_shadow(cell, beacon_texture, beacon_white,
-						BEACON_MAX_HEIGHT, BEACON_MAX_WIDTH)
-				elif posts.has(cell):
-					_draw_building_shadow(cell, post_texture, post_white,
-						POST_MAX_HEIGHT, POST_MAX_WIDTH)
-				elif kilns.has(cell):
-					_draw_building_shadow(cell, kiln_texture, kiln_white,
-						KILN_MAX_HEIGHT, KILN_MAX_WIDTH)
+		for o in _vis_objects:
+			_draw_shadow_by_kind(o[0], o[1])
 
-	# 2) OBYEKTLAR + PERSONAJ + HAYVONLAR — chuqurlik (s = col+row) bo'yicha
+	# 2) OBYEKTLAR + PERSONAJ + HAYVONLAR — chuqurlik (col+row) bo'yicha
 	var player_drawn = false
-	# Hayvonlarni ham chuqurlik bo'yicha aralashtirib chizamiz (daraxt orqasida
-	# ko'rinishi uchun). Saralab, s ga qarab navbat bilan chizamiz.
 	var anim_list := []
 	for a in animals:
 		if is_instance_valid(a):
@@ -4640,76 +4693,25 @@ func _draw() -> void:
 			anim_list.append({"a": a, "d": ac.x + ac.y})
 	anim_list.sort_custom(func(x, y): return int(x["d"]) < int(y["d"]))
 	var anim_i := 0
-	for s in range(r0 + c0, r1 + c1 + 1):
-		# Personaj shu chuqurlikda bo'lsa — obyektlardan OLDIN chizamiz
-		# (shunda oldindagi (kattaroq s) obyektlar personajni to'sadi)
-		if not player_drawn and s > p_depth:
+	for o in _vis_objects:
+		var od: int = int(o[0].x) + int(o[0].y)
+		if not player_drawn and od > p_depth:
 			_draw_player()
 			player_drawn = true
-		# Shu chuqurlikdan oldingi hayvonlarni chizamiz
-		while anim_i < anim_list.size() and s > int(anim_list[anim_i]["d"]):
+		while anim_i < anim_list.size() and od > int(anim_list[anim_i]["d"]):
 			_draw_animal_sprite(anim_list[anim_i]["a"])
 			anim_i += 1
+		_draw_object_by_kind(o[0], o[1])
 
-		var oA: int = maxi(c0, s - r1)
-		var oB: int = mini(c1, s - r0)
-		for col in range(oA, oB + 1):
-			var row = s - col
-			var cell := Vector2i(col, row)
-			if portal_cell != null and cell == portal_cell:
-				_draw_portal(cell)
-				continue
-			if not placed.has(cell):
-				# Eng ko'p uchraydigan holat: bo'sh katak -> faqat decor
-				var deco0 = _decor_at(col, row)
-				if deco0 == "tree" or deco0 == "cactus":
-					_draw_tree(col, row)
-				elif deco0 == "rock":
-					_draw_rock(col, row)
-				elif deco0 == "stump":
-					_draw_stump(cell)
-				elif deco0 == "grasstuft":
-					_draw_grasstuft(cell)
-				elif deco0 != "":
-					_draw_decor(_stable_pick(DECOR[deco0], col, row, 2), col, row)
-				continue
-			if workbenches.has(cell):
-				_draw_workbench(cell)
-			elif furnaces.has(cell):
-				_draw_furnace(cell)
-			elif windmills.has(cell):
-				_draw_windmill(cell)
-			elif magic_tables.has(cell):
-				_draw_magic_table(cell)
-			elif anvils.has(cell):
-				_draw_anvil(cell)
-			elif chests.has(cell):
-				_draw_chest(cell)
-			elif fences.has(cell):
-				_draw_fence(cell)
-			elif bridges.has(cell):
-				_draw_bridge(cell)
-			elif organs.has(cell):
-				_draw_organ(cell)
-			elif cauldrons.has(cell):
-				_draw_cauldron(cell)
-			elif posts.has(cell):
-				_draw_post(cell)
-			elif kilns.has(cell):
-				_draw_kiln(cell)
-			elif beacons.has(cell):
-				_draw_beacon(cell)
-			elif crops.has(cell) and not use_blocks:
-				_draw_crop(cell)
-
-	# Agar hali chizilmagan bo'lsa (eng oldinda) — oxirida chizamiz
-	if not player_drawn:
-		_draw_player()
-
-	# Qolgan (eng oldindagi) hayvonlar
+	# Qolgan hayvonlar + personaj — chuqurlik bo'yicha to'g'ri tartibda
 	while anim_i < anim_list.size():
+		if not player_drawn and p_depth < int(anim_list[anim_i]["d"]):
+			_draw_player()
+			player_drawn = true
 		_draw_animal_sprite(anim_list[anim_i]["a"])
 		anim_i += 1
+	if not player_drawn:
+		_draw_player()
 
 	# LAN: boshqa o'yinchilar
 	_draw_net_players()
@@ -4790,6 +4792,13 @@ func _process(delta: float) -> void:
 		if _ground_redraw_t >= GROUND_REDRAW_INTERVAL:
 			_ground_redraw_t = 0.0
 			ground_layer.queue_redraw()
+
+	# Obyektlar ro'yxatini vaqti-vaqti bilan yangilash (bino qo'yish/kesish
+	# kabi o'zgarishlar ko'rinishi uchun — xavfsizlik tarmog'i).
+	_vis_rebuild_t += delta
+	if _vis_rebuild_t >= 0.12:
+		_vis_rebuild_t = 0.0
+		_vis_dirty = true
 
 	# PORTAL — personaj portal ustiga chiqsa boshqa olamga o'tadi
 	if PORTAL_ENABLED and player != null:
