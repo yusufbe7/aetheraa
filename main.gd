@@ -106,13 +106,14 @@ const RARE_TREE_CHANCE := 0.015 # 1.5% — faqat kamdan-kam chiqadigan daraxt
 # Ichki nom eski kod bilan bir xil qoldi (biome tanlash + drop shu nomlarga
 # bog'liq), faqat KO'RINISH yangi animatsion paketga almashtirildi.
 var TREE_DEFS := [
-	["tree_03",   102.0, 64,  64, "tree_green"],      # yashil bargli (animatsion)   — yashil biome
-	["tree_rare", 104.0, 64,  64, "tree_autumn"],     # kuzgi kamyob (animatsion)    — yashil biome
+	["tree_03",    76.0, 64,  64, "tree_green"],      # yashil bargli (animatsion)   — yashil biome
+	["tree_rare",  78.0, 64,  64, "tree_autumn"],     # kuzgi kamyob (animatsion)    — yashil biome
 	["tree_05",    40.0,  0,   0, "tree_05"],          # KAKTUS (statik)              — qum biome
 	["tree_09",    70.0,  0,   0, "tree_09"],          # PALMA (statik)               — qum biome
-	["tree_snow1",102.0, 64,  64, "tree_snow"],       # qorli bargli (animatsion)    — qor biome
+	["tree_snow1", 76.0, 64,  64, "tree_snow"],       # qorli bargli (animatsion)    — qor biome
 ]
 var _tree_data := []
+var _tree_info_cache := {}   # Vector2i -> daraxt info (biome logikasi qayta hisoblanmasin)
 
 # ---- STUMP (kesilgan daraxt kundasi) ----
 # Daraxt kesilgach, o'sha katakda kunda qoladi.
@@ -3067,7 +3068,21 @@ func _draw_decor(tile_name: String, col: int, row: int) -> void:
 	var center = grid_to_local(col, row)
 	draw_texture(tex, center - Vector2(tex.get_width() / 2.0, tex.get_height() - TILE_H / 2.0))
 
+# Keshlangan o'rov: daraxt turi (biome+rare logikasi) katak uchun bir marta.
 func _get_tree_info_at(col: int, row: int):
+	if _tree_data.is_empty():
+		return null
+	var key := Vector2i(col, row)
+	if _tree_info_cache.has(key):
+		return _tree_info_cache[key]
+	var res = _compute_tree_info_at(col, row)
+	if _tree_info_cache.size() > 60000:
+		_tree_info_cache.clear()
+	_tree_info_cache[key] = res
+	return res
+
+
+func _compute_tree_info_at(col: int, row: int):
 	if _tree_data.is_empty():
 		return null
 
@@ -3179,9 +3194,8 @@ func _draw_tree(col: int, row: int) -> void:
 	var my_max_h: float = float(info.get("max_h", TREE_MAX_HEIGHT))
 	# Barqaror o'lcham farqi (0.85..1.12) — daraxtlar bir xil bo'yda bo'lmaydi
 	var tvar := 0.85 + _cell_rand(col, row, 33) * 0.27
-	# Cap 1.8 -> animatsion daraxtlar (64px) o'yinda kattaroq (playerdan baland)
 	var draw_scale: float = minf(
-		1.8,
+		1.0,
 		my_max_h / float(fh)
 	) * tvar
 
@@ -4366,7 +4380,7 @@ func _draw_tree_shadow(col: int, row: int) -> void:
 	var fh := float(info["fh"])
 	var fw := float(info["fw"])
 	var my_max_h: float = float(info.get("max_h", TREE_MAX_HEIGHT))
-	var s := minf(1.8, my_max_h / fh) * (0.85 + _cell_rand(col, row, 33) * 0.27)
+	var s := minf(1.0, my_max_h / fh) * (0.85 + _cell_rand(col, row, 33) * 0.27)
 	var base := _shadow_base(col, row)
 	base.x += (_cell_rand(col, row, 31) - 0.5) * TREE_JITTER_X
 	base.y += (_cell_rand(col, row, 32) - 0.5) * TREE_JITTER_Y
@@ -5688,6 +5702,8 @@ func _apply_world_seeds(offset: int) -> void:
 	_tile_cache.clear()
 	_cliff_cache.clear()
 	_elev_cache.clear()
+	_tree_info_cache.clear()
+	_vis_dirty = true
 
 
 # Portalga kirish — olamni almashtiradi.
