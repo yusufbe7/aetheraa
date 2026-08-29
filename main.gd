@@ -1109,6 +1109,14 @@ func _ready() -> void:
 			else:
 				push_warning("Daraxt topilmadi: " + path)
 
+	# SUV/YER BEZAKLARI: lilypad + otter + gul (chetlari kesiladi)
+	for ln in ["lilypad_1", "lilypad_2", "lilypad_3", "lilypad_tiny"]:
+		var lt = _load_cropped_texture("res://assets/objects/" + ln + ".png")
+		if lt != null:
+			lily_texs.append(lt)
+	otter_tex = _load_cropped_texture("res://assets/objects/otter.png")
+	flower_tex = _load_cropped_texture("res://assets/objects/flower.png")
+
 	# STUMP (kesilgan daraxt kundasi)
 	grass_texture = _load_cropped_texture(GRASS_BLOCK_PATH)
 	if grass_texture != null:
@@ -1951,6 +1959,17 @@ const WATER_DEPTH_TINT_MAX := 0.42   # chuqur suv qanchalik to'q ko'k bo'ladi (0
 const WATER_WAVE_FREQ := 0.075       # to'lqinlar zichligi (kichik=kengroq to'lqin)
 const WATER_FOAM_COL := Color(0.93, 0.98, 1.0)   # qirg'oq ko'pigi
 const WATER_CREST_COL := Color(0.78, 0.93, 1.0)  # to'lqin cho'qqisi yorug'i
+
+# ---- SUV/YER BEZAKLARI (lilypad, otter, gul) ----
+const LILY_CHANCE := 0.06        # suv katagida barg chiqishi
+const OTTER_CHANCE := 0.006      # suv katagida otter (kamyob)
+const FLOWER_CHANCE := 0.020     # grass katagida gul
+const LILY_SIZE := 24.0
+const OTTER_SIZE := 26.0
+const FLOWER_SIZE := 18.0
+var lily_texs := []
+var otter_tex: Texture2D = null
+var flower_tex: Texture2D = null
 
 # Cho'l qancha ko'p bo'lsin: KICHIKROQ son = KO'PROQ cho'l
 #   0.28 (kam)  ...  0.05 (juda ko'p)
@@ -4458,6 +4477,38 @@ func _visible_range() -> Array:
 		min_r = min(min_r, g.y); max_r = max(max_r, g.y)
 	return [min_c-2, max_c+3, min_r-2, max_r+3]
 
+# Suv/yer bezaklari (kesh qatlamda): suvda lilypad/otter, grassда gul.
+func _draw_ground_decor(ci: CanvasItem, col: int, row: int, gc: Vector2, gr: String) -> void:
+	if gr == "water":
+		var r := _cell_rand(col, row, 51)
+		if r < LILY_CHANCE and not lily_texs.is_empty():
+			var idx: int = int(_cell_rand(col, row, 52) * float(lily_texs.size())) % lily_texs.size()
+			var t: Texture2D = lily_texs[idx]
+			var sc := LILY_SIZE / float(t.get_height())
+			var dw := float(t.get_width()) * sc
+			var dh := float(t.get_height()) * sc
+			var jx := (_cell_rand(col, row, 53) - 0.5) * 10.0
+			var jy := (_cell_rand(col, row, 54) - 0.5) * 5.0
+			ci.draw_texture_rect(t,
+				Rect2(gc + Vector2(jx - dw / 2.0, jy - dh / 2.0), Vector2(dw, dh)), false)
+		elif r > 1.0 - OTTER_CHANCE and otter_tex != null:
+			var sc2 := OTTER_SIZE / float(otter_tex.get_height())
+			var ow := float(otter_tex.get_width()) * sc2
+			var oh := float(otter_tex.get_height()) * sc2
+			ci.draw_texture_rect(otter_tex,
+				Rect2(gc + Vector2(-ow / 2.0, -oh / 2.0 - 2.0), Vector2(ow, oh)), false)
+	elif gr == "grass":
+		if _cell_rand(col, row, 55) < FLOWER_CHANCE and flower_tex != null:
+			var sc3 := FLOWER_SIZE / float(flower_tex.get_height())
+			var fw := float(flower_tex.get_width()) * sc3
+			var fh := float(flower_tex.get_height()) * sc3
+			var lift := _lift_px(col, row)
+			var fjx := (_cell_rand(col, row, 56) - 0.5) * 12.0
+			ci.draw_texture_rect(flower_tex,
+				Rect2(gc + Vector2(fjx - fw / 2.0, TILE_H / 2.0 - lift - fh),
+				Vector2(fw, fh)), false)
+
+
 func _building_kind_at(cell: Vector2i) -> String:
 	if workbenches.has(cell): return "workbench"
 	if furnaces.has(cell): return "furnace"
@@ -4655,6 +4706,7 @@ func _render_ground(ci: CanvasItem, c0: int, c1: int, r0: int, r1: int) -> void:
 							_draw_cliff_cached(ci, col, row)    # tekis qirg'oq (suv cheti)
 						if gr == "water":
 							_draw_water_fx(ci, col, row, gc)    # jonli suv: chuqurlik+to'lqin+foam
+					_draw_ground_decor(ci, col, row, gc, gr)
 			if paths.has(gcell):
 				_draw_path(ci, gcell)
 			if plazas.has(gcell):
