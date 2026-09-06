@@ -679,7 +679,7 @@ const BLOCK_SCALE := 0.5         # bloklar oldindan kichraytirilgan (90px -> 32p
 var block_tex := {}
 # FALSE = tekis tayl rejimi (yer = tile_040, suv = tile_104) — toza, "yoriqsiz".
 # Yangi suv/yer bloklaringiz Blender'da tayyor bo'lgach TRUE qilamiz.
-var use_blocks := false
+var use_blocks := true   # 3D yer bloklari (grass/sand/snow) — tekis tayl o'rniga
 var _tile_cache := {}    # Vector2i -> Texture2D (yer tayli — tayyor tekstura)
 var _cliff_cache := {}   # Vector2i -> int bitmask (0=yo'q, 1=SE, 2=SW, 3=ikkisi)
 var dug_cells := {}      # Belkurak -> suv
@@ -2072,6 +2072,10 @@ func _lift_px(col: int, row: int) -> float:
 	if not (TERRAIN_V2 or ELEVATION_ENABLED):
 		return 0.0
 	var l: int = _elevation(col, row)
+	# 3D bloklarda balandlik LEVEL_LIFT bilan o'lchanadi -> daraxt/player blok
+	# ustida tursin (aks holda ichiga botib/suzib qoladi).
+	if use_blocks:
+		return float(l) * LEVEL_LIFT
 	if TERRAIN_V2:
 		return float(l) * HEIGHT_STEP_PX
 	if USE_HEIGHT_TILES:
@@ -4605,10 +4609,9 @@ func _render_ground(ci: CanvasItem, c0: int, c1: int, r0: int, r1: int) -> void:
 			var row = s - col
 			var gcell := Vector2i(col, row)
 			var gr := _ground_type(col, row)
-			if use_blocks and gr == "water" and block_tex.has("block_water"):
-				# --- SUV BLOKI: yerdan PASTROQ (cho'kkan ko'l) ---
-				_draw_block(ci, block_tex["block_water"], col, row)
-			elif use_blocks and gr != "water":
+			# SUV har doim tekis tayl + jonli effekt + lilypad (blok emas).
+			# Faqat QURUQLIK 3D blokka aylanadi.
+			if use_blocks and gr != "water":
 				# --- 3D BLOK (qalinlikka ega) + TERRASA BALANDLIGI ---
 				var lvl := _elevation(col, row)
 				var lift := float(lvl) * LEVEL_LIFT

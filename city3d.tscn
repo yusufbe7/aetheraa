@@ -1,0 +1,6 @@
+[gd_scene load_steps=2 format=3 uid="uid://c3dcity0niko01"]
+
+[ext_resource type="Script" path="res://city3d.gd" id="1_city3d"]
+
+[node name="City3D" type="Node3D"]
+script = ExtResource("1_city3d")
